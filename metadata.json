@@ -1,0 +1,5 @@
+{
+  "name": "域·卡牌生成器",
+  "description": "一个将规则、数据转化为卡面视觉的实时卡牌生成系统，支持域主、域灵、痕迹三种卡牌类型。",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: domain-card-generator
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production

@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-card-bg: #1a1a1a;
+  --color-card-border: #333;
+  --color-accent: #f27d26;
+
+  /* Override neutral colors to use hex instead of oklch for html2canvas compatibility */
+  --color-neutral-50: #fafafa;
+  --color-neutral-100: #f5f5f5;
+  --color-neutral-200: #e5e5e5;
+  --color-neutral-300: #d4d4d4;
+  --color-neutral-400: #a3a3a3;
+  --color-neutral-500: #737373;
+  --color-neutral-600: #525252;
+  --color-neutral-700: #404040;
+  --color-neutral-800: #262626;
+  --color-neutral-900: #171717;
+  --color-neutral-950: #0a0a0a;
+
+  /* Override red colors to use hex instead of oklch */
+  --color-red-50: #fef2f2;
+  --color-red-100: #fee2e2;
+  --color-red-200: #fecaca;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+  --color-red-700: #b91c1c;
+  --color-red-800: #991b1b;
+  --color-red-900: #7f1d1d;
+  --color-red-950: #450a0a;
+}
+
+@layer base {
+  body {
+    @apply bg-neutral-50 text-neutral-900 antialiased;
+  }
+}
+
+.card-shadow {
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
+}
+
+.matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+}
+
+.light-app {
+  background: #f6f7fb !important;
+  color: #1f2937 !important;
+}
+
+.light-app :where([class~="bg-neutral-950"], [class~="bg-neutral-950/40"], [class~="bg-neutral-950/20"], [class~="bg-neutral-950/10"]) {
+  background-color: #f7f9fc !important;
+}
+
+.light-app :where([class~="bg-neutral-900"], [class~="bg-neutral-900/80"], [class~="bg-neutral-900/50"], [class~="bg-neutral-900/30"]) {
+  background-color: #ffffff !important;
+}
+
+.light-app :where([class~="bg-neutral-800"], [class~="bg-neutral-800/50"]) {
+  background-color: #eef1f6 !important;
+}
+
+.light-app :where([class~="bg-neutral-700"]) {
+  background-color: #dfe4ec !important;
+}
+
+.light-app :where([class~="bg-white/5"], [class~="bg-white/10"], [class~="bg-white/15"]) {
+  background-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+.light-app :where([class~="border-white/5"], [class~="border-white/10"], [class~="border-white/20"]) {
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+.light-app :where([class~="text-white"]) {
+  color: #111827 !important;
+}
+
+.light-app :where([class~="text-neutral-200"], [class~="text-neutral-300"], [class~="text-neutral-400"]) {
+  color: #374151 !important;
+}
+
+.light-app :where([class~="text-neutral-500"]) {
+  color: #64748b !important;
+}
+
+.light-app :where([class~="text-neutral-600"], [class~="text-neutral-700"]) {
+  color: #475569 !important;
+}
+
+.light-app :where(input, textarea, select) {
+  color: #111827 !important;
+}
+
+.light-app :where(input::placeholder, textarea::placeholder) {
+  color: #94a3b8 !important;
+}
+
+.light-app :where(header, section, label, button) {
+  color-scheme: light;
+}
+
+.light-app #card-preview :where([class~="text-white"]) {
+  color: #ffffff !important;
+}
+
+.light-app #card-preview :where([class~="bg-white/10"]) {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.light-app #card-preview :where([class~="border-white/5"]) {
+  border-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.light-app #card-preview :where([class~="bg-neutral-900"]) {
+  background-color: #111827 !important;
+}
+
+.light-app :where([class~="bg-accent"], [class~="bg-emerald-600"], [class~="bg-red-500"], [class~="bg-red-600"]) :where([class~="text-white"]),
+.light-app :where(button[class*="bg-accent"], button[class*="bg-emerald"], button[class*="bg-red"]) {
+  color: #ffffff !important;
+}
