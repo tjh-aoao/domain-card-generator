@@ -1,24 +1,26 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "lint": "tsc --noEmit",
+    "test:card-data": "tsx scripts/cardData.test.ts",
+    "test:import-parser": "tsx scripts/importParser.test.ts",
+    "test": "npm run test:card-data && npm run test:import-parser"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",
-    "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "html-to-image": "^1.11.13",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",

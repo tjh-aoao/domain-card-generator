@@ -112,7 +112,7 @@ export const INITIAL_CARD_DATA: CardData = {
     attributes: ["黑"],
     trait: "限制/共鸣",
     keywords: ["限制", "共鸣", "遗言"],
-    race: "人界",
+    race: "人界域",
     attack: 1800,
     domainValue: 500,
     effectText: "【限制】此卡名的共鸣和遗言效果1回合仅可各使用1次。【共鸣】抽1张卡。【遗言】选择手牌中的1只费用5以下的域灵，将其特殊召唤。"

@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { 
   Download, 
   RotateCcw, 
@@ -30,387 +31,40 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toPng } from 'html-to-image';
-import JSZip from 'jszip';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { jsPDF } from 'jspdf';
 import { CardData, CardType, INITIAL_CARD_DATA, AssetLibrary, INITIAL_ASSETS, SavedCard } from './types';
-
-// Utility for tailwind classes
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-// Helper to proxy external image URLs to bypass CORS constraints entirely on both display and export
-function getProxiedUrl(url: string | undefined | null) {
-  if (!url) return '';
-  const trimmed = url.trim();
-  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('/') || !trimmed.startsWith('http')) {
-    return trimmed;
-  }
-  return `/api/proxy?url=${encodeURIComponent(trimmed)}`;
-}
-
-type ParsedCardFields = Record<string, string>;
-
-const FIELD_ALIASES: Array<[string, string[]]> = [
-  ['name', ['name', '名称', '卡名', '卡牌名', '卡牌名称']],
-  ['cardType', ['type', 'cardType', '类型', '卡牌类型', '种类']],
-  ['serialNumber', ['serial', 'serialNumber', '编号', '序号', '卡号']],
-  ['image', ['image', '图片', '插图', '立绘', '图片链接', '插图链接']],
-  ['attribute', ['attribute', '属性', '主属性', '颜色']],
-  ['flavorText', ['flavor', 'flavorText', '背景', '背景描述', '风味文本', '台词']],
-  ['matrix', ['matrix', '矩阵', '格子', '阵列']],
-  ['master.state', ['state', '状态', '觉醒状态']],
-  ['master.triggerCondition', ['trigger', 'triggerCondition', '触发', '触发条件']],
-  ['master.activeSkill', ['active', 'activeSkill', '主动', '主动技能']],
-  ['master.passiveSkill', ['passive', 'passiveSkill', '被动', '被动技能']],
-  ['master.maintenance', ['maintenance', '维持', '维持费用']],
-  ['spirit.cost', ['cost', '费用', '召唤费用']],
-  ['spirit.attributes', ['attributes', '副属性', '属性组', '多属性']],
-  ['spirit.trait', ['trait', '特性', '标签']],
-  ['spirit.keywords', ['keywords', '关键词', '关键字']],
-  ['spirit.race', ['race', '种族', '族类']],
-  ['spirit.attack', ['attack', '攻击', '攻击力']],
-  ['spirit.domainValue', ['domainValue', '域值', '领域值']],
-  ['spirit.effectText', ['effect', 'effectText', '效果', '效果文本', '能力']],
-  ['trace.traceType', ['traceType', '痕迹类型', '法术类型']],
-  ['trace.cost', ['traceCost', '痕迹费用', '费用']],
-  ['trace.effectCost', ['effectCost', '效果费用']],
-  ['trace.canUseOnOpponentTurn', ['quick', '对方回合', '是否速攻']],
-  ['trace.extraCost', ['extraCost', '额外费用']],
-  ['trace.effectText', ['traceEffect', '痕迹效果', '效果', '效果文本']],
-];
-
-function normalizeFieldKey(key: string) {
-  const normalized = key.trim().replace(/\s+/g, '').toLowerCase();
-  for (const [target, aliases] of FIELD_ALIASES) {
-    if (aliases.some(alias => alias.toLowerCase() === normalized)) return target;
-  }
-  return key.trim();
-}
-
-function splitList(value: string) {
-  return value.split(/[,\u3001，/|；;]+/).map(item => item.trim()).filter(Boolean);
-}
-
-function parseNumber(value: string, fallback: number) {
-  const match = value.match(/-?\d+/);
-  return match ? Number(match[0]) : fallback;
-}
-
-function parseBoolean(value: string) {
-  return /^(true|yes|y|1|是|可|可以|能|速攻|对方回合)$/i.test(value.trim());
-}
-
-const SPIRIT_TRAIT_ORDER = ['限制', '登场', '共鸣', '战斗', '吟唱', '遗言'];
-const EFFECT_TAGS = [...SPIRIT_TRAIT_ORDER, '普通', '结界', '痕迹', '退场', '领域', '发动条件', '效果'];
-const MATRIX_LABELS = [-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8];
-
-function parseMatrix(value: string, fallback: number[]) {
-  const binary = value.match(/[01]/g)?.map(Number);
-  if (binary?.length === 16) return binary;
-
-  const next = Array(16).fill(0);
-  const labels = value.match(/-?\d+/g)?.map(Number).filter(num => MATRIX_LABELS.includes(num)) || [];
-  if (labels.length === 0) return fallback;
-  labels.forEach(label => {
-    const index = MATRIX_LABELS.indexOf(label);
-    if (index >= 0) next[index] = 1;
-  });
-  return next;
-}
-
-function normalizeKnownItems(value: string, order: string[]) {
-  const items = splitList(value).map(item => item.replace(/[【】]/g, '').trim()).filter(Boolean);
-  const itemSet = new Set(items);
-  const ordered = order.filter(item => itemSet.has(item));
-  const extras = items.filter(item => !order.includes(item));
-  return [...ordered, ...extras];
-}
-
-function normalizeEffectTag(label: string) {
-  const trimmed = label.replace(/[【】]/g, '').trim();
-  if (trimmed === '条件') return '发动条件';
-  return EFFECT_TAGS.includes(trimmed) ? trimmed : '';
-}
-
-function formatEffectTextWithTags(value: string) {
-  return value
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map(rawLine => {
-      const line = rawLine.trim();
-      if (!line) return '';
-
-      const bracketMatch = line.match(/^【([^】]+)】\s*(.*)$/);
-      if (bracketMatch) {
-        const tag = normalizeEffectTag(bracketMatch[1]);
-        return tag ? `【${tag}】 ${bracketMatch[2].trim()}`.trim() : line;
-      }
-
-      const colonMatch = line.match(/^([^:：]{1,12})\s*[:：]\s*(.*)$/);
-      if (!colonMatch) return line;
-
-      const tag = normalizeEffectTag(colonMatch[1]);
-      return tag ? `【${tag}】 ${colonMatch[2].trim()}`.trim() : line;
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-function extractEffectTags(value: string) {
-  return formatEffectTextWithTags(value)
-    .split('\n')
-    .map(line => line.match(/^【([^】]+)】/)?.[1] || '')
-    .filter(tag => SPIRIT_TRAIT_ORDER.includes(tag));
-}
-
-function normalizeCardType(value: string | undefined, fields: ParsedCardFields): CardType {
-  const raw = (value || '').trim().toLowerCase();
-  if (raw.includes('master') || raw.includes('主')) return 'master';
-  if (raw.includes('trace') || raw.includes('痕')) return 'trace';
-  if (fields.matrix) return 'spirit_resonance';
-  if (raw.includes('resonance') || raw.includes('共鸣')) return 'spirit_resonance';
-  if (fields['trace.effectText'] || fields['trace.cost'] || fields['trace.traceType']) return 'trace';
-  if (fields['master.activeSkill'] || fields['master.passiveSkill'] || fields['master.triggerCondition']) return 'master';
-  return 'spirit_normal';
-}
-
-function extractPlainTextFromXml(xml: string) {
-  const documentXml = new DOMParser().parseFromString(xml, 'application/xml');
-  const paragraphs = Array.from(documentXml.getElementsByTagName('w:p'));
-  return paragraphs.map(paragraph => {
-    const chunks: string[] = [];
-    paragraph.childNodes.forEach(run => {
-      if (!(run instanceof Element)) return;
-      Array.from(run.getElementsByTagName('w:t')).forEach(textNode => chunks.push(textNode.textContent || ''));
-      if (run.getElementsByTagName('w:tab').length) chunks.push('\t');
-      if (run.getElementsByTagName('w:br').length) chunks.push('\n');
-    });
-    return chunks.join('');
-  }).filter(line => line.trim()).join('\n');
-}
-
-async function readDocxText(file: File) {
-  const zip = await JSZip.loadAsync(await file.arrayBuffer());
-  const documentFile = zip.file('word/document.xml');
-  if (!documentFile) throw new Error('DOCX 文件缺少 word/document.xml');
-  return extractPlainTextFromXml(await documentFile.async('string'));
-}
-
-function parseCardBlocks(text: string) {
-  const blocks: ParsedCardFields[] = [];
-  let current: ParsedCardFields = {};
-  let lastKey = '';
-
-  const pushCurrent = () => {
-    if (Object.keys(current).length === 0) return;
-    blocks.push(current);
-    current = {};
-    lastKey = '';
-  };
-
-  const lines = text.replace(/\r\n?/g, '\n').split('\n');
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    if (/^[-=_*#]{3,}$/.test(line) || /^第?\s*\d+\s*[张份]?\s*卡/.test(line)) {
-      pushCurrent();
-      continue;
-    }
-
-    const match = line.match(/^([^:：=]{1,32})\s*[:：=]\s*(.*)$/);
-    if (match) {
-      const key = normalizeFieldKey(match[1]);
-      if (key === 'name' && current.name) pushCurrent();
-      current[key] = match[2].trim();
-      lastKey = key;
-      continue;
-    }
-
-    if (lastKey) current[lastKey] = `${current[lastKey]}\n${line}`.trim();
-  }
-
-  pushCurrent();
-  return blocks;
-}
-
-function normalizeTextLines(text: string) {
-  return text.replace(/\r\n?/g, '\n').split('\n').map(line => line.trim());
-}
-
-function splitSimpleCardBlocks(text: string) {
-  const blocks: string[][] = [];
-  let current: string[] = [];
-  const headerPattern = /^(.+?)\s*[|｜]\s*(\d+)\s*[|｜]\s*(.+)$/;
-
-  const pushCurrent = () => {
-    if (current.length === 0) return;
-    blocks.push(current);
-    current = [];
-  };
-
-  for (const line of normalizeTextLines(text)) {
-    if (!line || /^[|｜]+$/.test(line)) continue;
-    if (/^[-=_*#]{3,}$/.test(line)) {
-      pushCurrent();
-      continue;
-    }
-    if (headerPattern.test(line) && current.length > 0) {
-      pushCurrent();
-    }
-    current.push(line);
-  }
-
-  pushCurrent();
-  return blocks;
-}
-
-function parseBracketMeta(value: string) {
-  const trimmed = value.replace(/^【/, '').replace(/】$/, '');
-  return splitList(trimmed);
-}
-
-function isSimpleTraceKind(value: string) {
-  const normalized = value.trim().toLowerCase();
-  return ['痕', '痕迹', '痕迹卡', 'trace'].includes(normalized);
-}
-
-function parseSimpleCardBlocks(text: string) {
-  return splitSimpleCardBlocks(text).map((lines, index) => {
-    const fields: ParsedCardFields = {
-      serialNumber: `AUTO-${String(index + 1).padStart(3, '0')}`,
-    };
-
-    const header = lines[0]?.match(/^(.+?)\s*[|｜]\s*(\d+)\s*[|｜]\s*(.+)$/);
-    if (!header) return null;
-
-    fields.name = header[1].trim();
-    const cost = header[2].trim();
-    const kindOrAttribute = header[3].trim();
-
-    if (isSimpleTraceKind(kindOrAttribute)) {
-      fields.cardType = '痕迹';
-      fields['trace.cost'] = cost;
-
-      let effectStartIndex = 1;
-      if (lines[1]?.startsWith('【')) {
-        const meta = parseBracketMeta(lines[1]);
-        fields['trace.traceType'] = meta[0] || '';
-        effectStartIndex = 2;
-      } else if (lines[1] && !/[:：]/.test(lines[1])) {
-        fields['trace.traceType'] = lines[1].trim();
-        effectStartIndex = 2;
-      }
-
-      fields['trace.effectText'] = lines.slice(effectStartIndex).join('\n');
-      return fields;
-    }
-
-    const stats = lines[1]?.match(/^(\d+)\s*[|｜]\s*(\d+)$/);
-    if (!stats) return null;
-
-    fields['spirit.cost'] = cost;
-    fields.attribute = kindOrAttribute;
-    fields['spirit.attack'] = stats[1].trim();
-    fields['spirit.domainValue'] = stats[2].trim();
-
-    let metaLine = '';
-    let effectStartIndex = 2;
-    if (lines[2] && !lines[2].startsWith('【')) {
-      fields.matrix = lines[2];
-      effectStartIndex = 3;
-    }
-    if (lines[effectStartIndex]?.startsWith('【')) {
-      metaLine = lines[effectStartIndex];
-      const meta = parseBracketMeta(metaLine);
-      fields['spirit.race'] = meta[0] || '';
-      fields['spirit.keywords'] = meta.slice(1).join('、');
-      effectStartIndex += 1;
-    }
-
-    const effectLines = lines.slice(effectStartIndex);
-    fields['spirit.effectText'] = effectLines.join('\n');
-    fields.cardType = fields.matrix ? '共鸣域灵' : '普通域灵';
-
-    return fields;
-  }).filter(Boolean) as ParsedCardFields[];
-}
-
-function parseImportText(text: string) {
-  const fieldBlocks = parseCardBlocks(text);
-  if (fieldBlocks.some(block => block.name || block.cardType || block['spirit.effectText'] || block['trace.effectText'])) {
-    return fieldBlocks;
-  }
-  return parseSimpleCardBlocks(text);
-}
-
-function fieldsToCardData(fields: ParsedCardFields): CardData {
-  const card = JSON.parse(JSON.stringify(INITIAL_CARD_DATA)) as CardData;
-  const cardType = normalizeCardType(fields.cardType, fields);
-
-  card.cardType = cardType;
-  card.name = fields.name || card.name;
-  card.serialNumber = fields.serialNumber || card.serialNumber;
-  card.image = fields.image || card.image;
-  card.attribute = fields.attribute || card.attribute;
-  card.flavorText = fields.flavorText || card.flavorText;
-  card.imageScale = 1;
-  card.imageOffset = { x: 0, y: 0 };
-
-  if (fields.matrix) {
-    card.matrix = parseMatrix(fields.matrix, card.matrix);
-  }
-
-  if (fields['master.state']) card.master.state = fields['master.state'];
-  if (fields['master.triggerCondition']) card.master.triggerCondition = fields['master.triggerCondition'];
-  if (fields['master.activeSkill']) card.master.activeSkill = fields['master.activeSkill'];
-  if (fields['master.passiveSkill']) card.master.passiveSkill = fields['master.passiveSkill'];
-  if (fields['master.maintenance']) card.master.maintenance = fields['master.maintenance'];
-
-  if (fields['spirit.cost']) card.spirit.cost = parseNumber(fields['spirit.cost'], card.spirit.cost);
-  if (fields['spirit.attributes']) card.spirit.attributes = splitList(fields['spirit.attributes']);
-  const importedTraitValue = fields['spirit.trait'] || fields['spirit.keywords'];
-  if (importedTraitValue) {
-    const traits = normalizeKnownItems(importedTraitValue, SPIRIT_TRAIT_ORDER);
-    card.spirit.trait = traits.join('/');
-    card.spirit.keywords = traits;
-  }
-  if (fields['spirit.race']) card.spirit.race = fields['spirit.race'];
-  if (fields['spirit.attack']) card.spirit.attack = parseNumber(fields['spirit.attack'], card.spirit.attack);
-  if (fields['spirit.domainValue']) card.spirit.domainValue = parseNumber(fields['spirit.domainValue'], card.spirit.domainValue);
-  if (fields['spirit.effectText']) {
-    card.spirit.effectText = formatEffectTextWithTags(fields['spirit.effectText']);
-    if (!importedTraitValue) {
-      const traits = normalizeKnownItems(extractEffectTags(card.spirit.effectText).join('、'), SPIRIT_TRAIT_ORDER);
-      if (traits.length > 0) {
-        card.spirit.trait = traits.join('/');
-        card.spirit.keywords = traits;
-      }
-    }
-  }
-
-  if (!fields['spirit.attributes'] && fields.attribute) card.spirit.attributes = splitList(fields.attribute);
-
-  if (fields['trace.traceType']) card.trace.traceType = fields['trace.traceType'];
-  if (fields['trace.cost']) card.trace.cost = parseNumber(fields['trace.cost'], card.trace.cost);
-  if (fields['trace.effectCost']) card.trace.effectCost = fields['trace.effectCost'];
-  if (fields['trace.canUseOnOpponentTurn']) card.trace.canUseOnOpponentTurn = parseBoolean(fields['trace.canUseOnOpponentTurn']);
-  if (fields['trace.extraCost']) card.trace.extraCost = fields['trace.extraCost'];
-  if (fields['trace.effectText']) card.trace.effectText = formatEffectTextWithTags(fields['trace.effectText']);
-
-  return card;
-}
-
-function makeSavedCard(cardData: CardData): SavedCard {
-  return {
-    id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8),
-    createdAt: Date.now(),
-    cardData,
-  };
-}
+import { cloneCardData, deepClone, isRecord, makeSavedCard, normalizeAssetLibrary, normalizeCardData, normalizeSavedCard } from './cardData';
+import { fieldsToCardData, parseImportText, readDocxText, SPIRIT_TRAIT_ORDER } from './importParser';
+import { A4_EXPORT_HEIGHT, A4_EXPORT_WIDTH, CARD_HEIGHT, CARD_WIDTH, getMatrixLabel } from './cardLayout';
+import { cn } from './cn';
+import { CardPreview } from './components/CardPreview';
+import { getProxiedUrl } from './imageProxy';
 
 // --- Components ---
+
+type AppTab = 'editor' | 'library' | 'cards_library' | 'print_workspace';
+
+type PrintImageFit = 'cover' | 'contain';
+
+interface PrintImageItem {
+  id: string;
+  name: string;
+  src: string;
+  count: number;
+  fit: PrintImageFit;
+}
+
+const PRINT_CARD_WIDTH = Math.round(A4_EXPORT_WIDTH * 59 / 210);
+const PRINT_CARD_HEIGHT = Math.round(A4_EXPORT_HEIGHT * 86 / 297);
+const PRINT_GRID_COLS = 3;
+const PRINT_GRID_ROWS = 3;
+const PRINT_GRID_WIDTH = PRINT_CARD_WIDTH * PRINT_GRID_COLS;
+const PRINT_GRID_HEIGHT = PRINT_CARD_HEIGHT * PRINT_GRID_ROWS;
+const PRINT_GRID_LEFT = Math.round((A4_EXPORT_WIDTH - PRINT_GRID_WIDTH) / 2);
+const PRINT_GRID_TOP = Math.round((A4_EXPORT_HEIGHT - PRINT_GRID_HEIGHT) / 2);
+const PRINT_CROP_MARK_LENGTH = 48;
+const PRINT_CARDS_PER_PAGE = 9;
+const PRINT_PREVIEW_SCALE = 0.56;
 
 interface ImageInputProps {
   key?: React.Key;
@@ -480,309 +134,10 @@ function ImageInput({
   );
 };
 
-const getMatrixLabel = (index: number) => {
-  if (index < 8) return index - 8;
-  return index - 7;
-};
-
-const MatrixDisplay = ({ matrix, size = "small" }: { matrix: number[], size?: "small" | "large" }) => {
-  const cellSize = size === "small" ? "w-2.5 h-2.5" : "w-10 h-10";
-  const fontSize = size === "small" ? "text-[5.5px]" : "text-[10px]";
-  return (
-    <div className={cn("matrix-grid bg-black/20 p-0.5 rounded-sm", size === "large" ? "gap-1" : "gap-0.5")}>
-      {matrix.map((val, i) => (
-        <div 
-          key={i} 
-          className={cn(
-            cellSize, 
-            "rounded-full transition-colors flex items-center justify-center border border-white/5",
-            val === 0 ? "bg-white/10" : "bg-red-600 shadow-[0_0_4px_rgba(220,38,38,0.8)]"
-          )} 
-        >
-          <span className={cn(fontSize, val === 0 ? "text-white/30" : "text-white font-black")}>
-            {getMatrixLabel(i)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const CARD_WIDTH = 380;
-const CARD_HEIGHT = Math.round(CARD_WIDTH * 86 / 59); // 554
-const A4_EXPORT_WIDTH = 1240;
-const A4_EXPORT_HEIGHT = Math.round(A4_EXPORT_WIDTH * 297 / 210);
-const A4_MAX_CARDS = 12;
-const A4_PADDING = 70;
-const A4_GAP = 24;
-
-function getA4Layout(count: number) {
-  const normalizedCount = Math.max(1, Math.min(A4_MAX_CARDS, count));
-  const cardRatio = CARD_WIDTH / CARD_HEIGHT;
-  let best = {
-    cols: 1,
-    rows: normalizedCount,
-    cardWidth: 0,
-    cardHeight: 0,
-    area: 0,
-  };
-
-  for (let cols = 1; cols <= Math.min(4, normalizedCount); cols++) {
-    const rows = Math.ceil(normalizedCount / cols);
-    const availableWidth = A4_EXPORT_WIDTH - A4_PADDING * 2 - A4_GAP * (cols - 1);
-    const availableHeight = A4_EXPORT_HEIGHT - A4_PADDING * 2 - A4_GAP * (rows - 1);
-    const cardWidth = Math.min(availableWidth / cols, (availableHeight / rows) * cardRatio);
-    const cardHeight = cardWidth / cardRatio;
-    const area = cardWidth * cardHeight;
-
-    if (area > best.area) {
-      best = { cols, rows, cardWidth, cardHeight, area };
-    }
-  }
-
-  return best;
-}
-
-const CardPreview = React.forwardRef<HTMLDivElement, {
-  data: CardData,
-  assets: AssetLibrary,
-  showGrid?: boolean,
-  forExport?: boolean,
-  onImageAdjust?: (scale: number, offset: { x: number, y: number }) => void
-}>(({ data, assets, showGrid, forExport, onImageAdjust }, ref) => {
-  const formatText = (text: string) => {
-    if (!text) return null;
-    return text.split('\n').map((line, i) => {
-      // Format keywords like 【登场】 into black boxes without brackets
-      const formattedLine = line.replace(/【(.*?)】/g, (match, p1) => {
-        const keywords = ['限制', '登场', '共鸣', '战斗', '吟唱', '遗言', '普通', '结界', '痕迹', '退场', '领域', '发动条件', '效果'];
-        if (keywords.includes(p1)) {
-          return `<span class="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative -top-[0.5px] align-middle leading-none">${p1}</span>`;
-        }
-        return `<span class="text-accent font-bold">【${p1}】</span>`;
-      });
-      return <p key={i} className="mb-0.5 leading-[1.3] text-justify break-all" dangerouslySetInnerHTML={{ __html: formattedLine }} />;
-    });
-  };
-
-  const templateImg = assets.templates[data.cardType];
-  const attrIcon = assets.attributes[data.attribute];
-  const costValue = (data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') ? data.spirit.cost : data.trace.cost;
-  const costIcon = assets.costs[costValue];
-
-  const [illustrationScale, setIllustrationScale] = useState(data.imageScale ?? 1);
-  const [illustrationOffset, setIllustrationOffset] = useState(data.imageOffset ?? { x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    setIllustrationScale(data.imageScale ?? 1);
-    setIllustrationOffset(data.imageOffset ?? { x: 0, y: 0 });
-  }, [data.image, data.imageScale, data.imageOffset]);
-
-  const handleWheel = (e: React.WheelEvent) => {
-    // Zooming
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    const nextScale = Math.max(0.1, Math.min(10, illustrationScale + delta));
-    setIllustrationScale(nextScale);
-    onImageAdjust?.(nextScale, illustrationOffset);
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - illustrationOffset.x, y: e.clientY - illustrationOffset.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const nextOffset = {
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    };
-    setIllustrationOffset(nextOffset);
-  };
-
-  const handleMouseUp = () => {
-    if (isDragging) {
-      setIsDragging(false);
-      onImageAdjust?.(illustrationScale, illustrationOffset);
-    }
-  };
-
-  return (
-    <div 
-      ref={ref}
-      className={cn(
-        "relative bg-white rounded-[12px] overflow-hidden shadow-2xl flex flex-col font-sans text-neutral-900 select-none",
-        !forExport && "aspect-[59/86] w-full max-w-[380px]"
-      )}
-      style={forExport ? { width: `${CARD_WIDTH}px`, height: `${CARD_HEIGHT}px` } : undefined}
-      id="card-preview"
-    >
-      {/* 0. Base Template Background */}
-      <div className="absolute inset-0 z-0">
-        {templateImg ? (
-          <img 
-            src={getProxiedUrl(templateImg)} 
-            alt="template" 
-            className="w-full h-full object-cover pointer-events-none"
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
-          />
-        ) : null}
-      </div>
-
-      {/* 1. Illustration Area (The Green Frame) */}
-      <div 
-        className="absolute top-[9.3%] left-[4.95%] right-[5.5%] h-[56.5%] overflow-hidden z-1 cursor-move rounded-[4px]"
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        {data.image ? (
-          <img 
-            src={getProxiedUrl(data.image)} 
-            alt={data.name} 
-            className="w-full h-full object-cover pointer-events-none select-none"
-            style={{
-              transform: `translate(${illustrationOffset.x}px, ${illustrationOffset.y}px) scale(${illustrationScale})`,
-              transition: isDragging ? 'none' : 'transform 0.1s ease-out'
-            }}
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
-          />
-        ) : (
-          <div className="w-full h-full bg-neutral-100 flex items-center justify-center text-neutral-400 text-xs">
-            等待添加插画...
-          </div>
-        )}
-      </div>
-
-      {/* 2. Title & Cost Overlay (Top) */}
-      <div className="absolute top-[1.2%] left-[5%] right-[2%] h-[5.5%] flex items-center justify-between z-10">
-        <h2 className="text-[15px] font-black tracking-tighter text-neutral-900 drop-shadow-sm truncate max-w-[65%] leading-[1.2] py-0.5">
-          {data.name}
-        </h2>
-        <div className="flex items-center">
-          <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden z-10">
-            {costIcon ? (
-              <img src={getProxiedUrl(costIcon)} alt={`cost-${costValue}`} className="w-full h-full object-contain" referrerPolicy="no-referrer" crossOrigin="anonymous" />
-            ) : (
-              <span className="text-[18px] font-black text-neutral-900">{costValue}</span>
-            )}
-          </div>
-          <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden ml-[-8px] z-20">
-            {attrIcon ? (
-              <img src={getProxiedUrl(attrIcon)} alt={data.attribute} className="w-full h-full object-contain" referrerPolicy="no-referrer" crossOrigin="anonymous" />
-            ) : (
-              <span className="text-[14px] font-black text-neutral-900">{data.attribute}</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Type / Stats Line (Middle Bar) */}
-      <div className="absolute top-[66.8%] left-[4%] right-[7%] h-[4%] flex items-center justify-between z-10 whitespace-nowrap">
-        <div className="text-[10px] font-medium text-neutral-900 text-left tracking-[-0.08em] leading-none whitespace-nowrap">
-          {data.cardType === 'master' && <span>【域主 / {data.master.state}】</span>}
-          {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-            <span>【{data.spirit.race} / {data.spirit.trait}】</span>
-          )}
-          {data.cardType === 'trace' && <span>【痕迹 / {data.trace.traceType}】</span>}
-        </div>
-        {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-          <div className="text-[10px] font-medium text-neutral-900 text-right tracking-[-0.08em] leading-none whitespace-nowrap">
-            zp: {data.spirit.domainValue} / atk: {data.spirit.attack}
-          </div>
-        )}
-      </div>
-
-      {/* 4. Effect Area (Bottom Box) */}
-      <div className="absolute top-[72%] left-[6%] right-[34%] bottom-[9%] py-0.5 text-[7px] leading-[1.45] text-neutral-900 font-medium overflow-hidden z-10 break-all whitespace-pre-wrap">
-        {data.cardType === 'master' && (
-          <div className="space-y-1">
-            {data.master.triggerCondition && (
-              <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative top-[1px] shrink-0">觉醒条件</span>
-                <span className="flex-1">{data.master.triggerCondition}</span>
-              </div>
-            )}
-            {data.master.activeSkill && (
-              <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative top-[1px] shrink-0">主动</span>
-                <span className="flex-1">{data.master.activeSkill}</span>
-              </div>
-            )}
-            {data.master.passiveSkill && (
-              <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative top-[1px] shrink-0">被动</span>
-                <span className="flex-1">{data.master.passiveSkill}</span>
-              </div>
-            )}
-          </div>
-        )}
-        {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && formatText(data.spirit.effectText)}
-        {data.cardType === 'trace' && (
-          <div className="space-y-1">
-            {formatText(data.trace.effectText)}
-          </div>
-        )}
-      </div>
-
-      {/* 5. Footer Area (Serial & Matrix) */}
-      <div className="absolute bottom-[1.5%] left-[6%] right-[6%] h-[3%] flex items-center justify-end z-10">
-        <div className="text-[7px] font-mono text-neutral-900 opacity-70">
-          {data.serialNumber}
-        </div>
-      </div>
-
-      {/* 6. Resonance Matrix (Bottom Right Box) */}
-      {(data.cardType === 'master' || data.cardType === 'spirit_resonance') && (
-        <div className="absolute bottom-[12%] right-[9%] z-20 scale-[0.8] origin-bottom-right">
-          <MatrixDisplay matrix={data.matrix} />
-        </div>
-      )}
-
-      {/* 7. Coordinate Grid Overlay (Chessboard Style) */}
-      {showGrid && (
-        <div className="absolute inset-0 z-[100] pointer-events-none overflow-hidden select-none">
-          {/* Grid Lines */}
-          <div 
-            className="absolute inset-0 opacity-30" 
-            style={{ 
-              backgroundImage: 'linear-gradient(rgba(255,0,0,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(255,0,0,0.3) 1px, transparent 1px)',
-              backgroundSize: '5% 5%' 
-            }} 
-          />
-          {/* Column Labels (A-T) */}
-          <div className="absolute top-0 left-0 right-0 flex h-full">
-            {"ABCDEFGHIJKLMNOPQRST".split("").map((char, i) => (
-              <div key={char} className="flex-1 flex flex-col items-start pl-0.5">
-                <span className="text-[7px] font-mono font-black text-red-500/60">{char}</span>
-              </div>
-            ))}
-          </div>
-          {/* Row Labels (1-20) */}
-          <div className="absolute top-0 left-0 bottom-0 flex flex-col w-full">
-            {Array.from({ length: 20 }).map((_, i) => (
-              <div key={i} className="flex-1 flex items-start pt-0.5 pl-0.5">
-                <span className="text-[7px] font-mono font-black text-red-500/60">{i + 1}</span>
-              </div>
-            ))}
-          </div>
-          {/* Cell Highlight Helper (Optional: can add hover effect if needed, but static for now) */}
-        </div>
-      )}
-    </div>
-  );
-});
-
 export default function App() {
   const [cardData, setCardData] = useState<CardData>(INITIAL_CARD_DATA);
   const [assets, setAssets] = useState<AssetLibrary>(INITIAL_ASSETS);
-  const [activeTab, setActiveTab] = useState<'editor' | 'library' | 'cards_library'>('editor');
+  const [activeTab, setActiveTab] = useState<AppTab>('editor');
   const [zoomLevel, setZoomLevel] = useState(2.6);
   const [showGrid, setShowGrid] = useState(false);
   
@@ -790,7 +145,10 @@ export default function App() {
   const [savedCards, setSavedCards] = useState<SavedCard[]>(() => {
     try {
       const saved = localStorage.getItem('spirit_card_library');
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed)
+        ? parsed.map(normalizeSavedCard).filter((item): item is SavedCard => Boolean(item))
+        : [];
     } catch {
       return [];
     }
@@ -799,14 +157,15 @@ export default function App() {
   const [isExportingBatch, setIsExportingBatch] = useState(false);
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
   const [batchExportCard, setBatchExportCard] = useState<CardData | null>(null);
-  const [a4CardCount, setA4CardCount] = useState(9);
-  const [a4ExportCards, setA4ExportCards] = useState<CardData[]>([]);
+  const [exportingCardId, setExportingCardId] = useState<string | null>(null);
+  const [singleExportWidth, setSingleExportWidth] = useState(CARD_WIDTH);
+  const [printImages, setPrintImages] = useState<PrintImageItem[]>([]);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const effectTextRef = useRef<HTMLTextAreaElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const batchExportRef = useRef<HTMLDivElement>(null);
-  const a4SheetRef = useRef<HTMLDivElement>(null);
+  const printPagesRef = useRef<HTMLDivElement>(null);
 
   // Sync saved cards to localStorage
   useEffect(() => {
@@ -845,11 +204,34 @@ export default function App() {
     }));
   };
 
+  const sanitizeFileName = (name: string) => {
+    return (name || 'card').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim() || 'card';
+  };
+
+  const triggerDownload = (dataUrl: string, fileName: string) => {
+    const link = document.createElement('a');
+    link.download = fileName;
+    link.href = dataUrl;
+    link.rel = 'noopener';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    window.setTimeout(() => {
+      link.remove();
+    }, 0);
+  };
+
+  const getPreviewBaseWidth = () => {
+    const width = previewRef.current?.offsetWidth || CARD_WIDTH;
+    return Math.max(240, Math.min(CARD_WIDTH, Math.round(width)));
+  };
+
   const handleExport = async () => {
     const cardEl = previewRef.current;
     if (!cardEl) return;
 
     try {
+      await waitForImages(cardEl);
       const dataUrl = await toPng(cardEl, {
         pixelRatio: 3,
         cacheBust: true,
@@ -861,10 +243,7 @@ export default function App() {
         },
       });
 
-      const link = document.createElement('a');
-      link.download = `${cardData.name || 'card'}.png`;
-      link.href = dataUrl;
-      link.click();
+      triggerDownload(dataUrl, `${sanitizeFileName(cardData.name)}.png`);
     } catch (err) {
       console.error('Export failed:', err);
       alert('导出失败，可能是由于某些图片源不支持跨域访问。请尝试更换图片源或手动截图。');
@@ -873,8 +252,8 @@ export default function App() {
 
   const handleReset = () => {
     if (window.confirm('确定要重置当前卡牌和素材库吗？')) {
-      setCardData(INITIAL_CARD_DATA);
-      setAssets(INITIAL_ASSETS);
+      setCardData(deepClone(INITIAL_CARD_DATA));
+      setAssets(deepClone(INITIAL_ASSETS));
     }
   };
 
@@ -895,8 +274,15 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (json.cardData) setCardData(json.cardData);
-        if (json.assets) setAssets(json.assets);
+        if (json.cardData) {
+          const nextCardData = normalizeCardData(json.cardData);
+          if (!nextCardData) {
+            alert('无效的 JSON 文件：cardData 格式不正确');
+            return;
+          }
+          setCardData(nextCardData);
+        }
+        if (json.assets) setAssets(normalizeAssetLibrary(json.assets));
       } catch (err) {
         alert('无效的 JSON 文件');
       }
@@ -913,7 +299,7 @@ export default function App() {
         if (item.id === editingCardId) {
           return {
             ...item,
-            cardData: JSON.parse(JSON.stringify(cardData))
+            cardData: cloneCardData(cardData)
           };
         }
         return item;
@@ -924,7 +310,7 @@ export default function App() {
       const newCard: SavedCard = {
         id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 5),
         createdAt: Date.now(),
-        cardData: JSON.parse(JSON.stringify(cardData))
+        cardData: cloneCardData(cardData)
       };
       setSavedCards(prev => [newCard, ...prev]);
       setEditingCardId(newCard.id); // switch into editing mode for this added card
@@ -933,7 +319,7 @@ export default function App() {
   };
 
   const loadCardFromLibrary = (saved: SavedCard) => {
-    setCardData(JSON.parse(JSON.stringify(saved.cardData)));
+    setCardData(cloneCardData(saved.cardData));
     setEditingCardId(saved.id);
     setActiveTab('editor'); // switch back to tab
   };
@@ -952,7 +338,7 @@ export default function App() {
       id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 5),
       createdAt: Date.now(),
       cardData: {
-        ...JSON.parse(JSON.stringify(saved.cardData)),
+        ...cloneCardData(saved.cardData),
         name: saved.cardData.name ? `${saved.cardData.name} (副本)` : '未命名卡牌 (副本)'
       }
     };
@@ -966,45 +352,175 @@ export default function App() {
     alert(`已复制卡牌并且作为副本加入牌库！`);
   };
 
+  const waitForRenderCycle = async () => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  };
+
   const waitForImages = async (container: HTMLElement) => {
     const images = Array.from(container.querySelectorAll('img'));
     await Promise.all(images.map(image => {
-      if (image.complete) return Promise.resolve();
+      if (image.complete) {
+        return image.decode ? image.decode().catch(() => undefined) : Promise.resolve();
+      }
       return new Promise<void>(resolve => {
-        image.addEventListener('load', () => resolve(), { once: true });
-        image.addEventListener('error', () => resolve(), { once: true });
+        const timeout = window.setTimeout(() => resolve(), 8000);
+        const done = () => {
+          window.clearTimeout(timeout);
+          resolve();
+        };
+        image.addEventListener('load', () => {
+          if (image.decode) {
+            image.decode().then(done, done);
+          } else {
+            done();
+          }
+        }, { once: true });
+        image.addEventListener('error', done, { once: true });
       });
     }));
   };
 
-  const handleExportSingleCard = async (card: CardData) => {
-    setBatchExportCard(card);
+  const readPrintImageFile = (file: File) => {
+    return new Promise<PrintImageItem>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        resolve({
+          id: 'print_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+          name: file.name,
+          src: String(event.target?.result || ''),
+          count: 1,
+          fit: 'cover',
+        });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
 
-    await new Promise(resolve => setTimeout(resolve, 200));
+  const handleAddPrintImages = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file): file is File => file instanceof File && file.type.startsWith('image/'));
+    event.target.value = '';
+    if (files.length === 0) return;
 
-    if (!batchExportRef.current) {
-      setBatchExportCard(null);
-      alert('导出环境未就绪，请重试！');
+    try {
+      const items = await Promise.all(files.map(readPrintImageFile));
+      setPrintImages(prev => [...prev, ...items]);
+    } catch (err) {
+      console.error('Print image import failed:', err);
+      alert('图片导入失败，请换一批图片重试。');
+    }
+  };
+
+  const updatePrintImageCount = (id: string, nextCount: number) => {
+    setPrintImages(prev => prev.map(item => (
+      item.id === id
+        ? { ...item, count: Math.max(1, Math.min(99, nextCount || 1)) }
+        : item
+    )));
+  };
+
+  const updatePrintImageFit = (id: string, fit: PrintImageFit) => {
+    setPrintImages(prev => prev.map(item => item.id === id ? { ...item, fit } : item));
+  };
+
+  const deletePrintImage = (id: string) => {
+    setPrintImages(prev => prev.filter(item => item.id !== id));
+  };
+
+  const getExpandedPrintImages = () => {
+    return printImages.flatMap(item => (
+      Array.from({ length: item.count }, (_, copyIndex) => ({ ...item, copyIndex }))
+    ));
+  };
+
+  const handleDownloadPrintPdf = async () => {
+    const cards = getExpandedPrintImages();
+    if (cards.length === 0) {
+      alert('请先添加要排版打印的图片。');
+      return;
+    }
+
+    await waitForRenderCycle();
+    const pageNodes = printPagesRef.current
+      ? Array.from(printPagesRef.current.querySelectorAll('[data-print-page="true"]')) as HTMLElement[]
+      : [];
+    if (pageNodes.length === 0) {
+      alert('打印页面还没有准备好，请重试。');
       return;
     }
 
     try {
-      const dataUrl = await toPng(batchExportRef.current, {
-        pixelRatio: 3,
-        cacheBust: true,
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
       });
 
-      const link = document.createElement('a');
-      link.download = `${card.name || 'card'}.png`;
-      link.href = dataUrl;
-      link.click();
+      for (let index = 0; index < pageNodes.length; index++) {
+        const pageNode = pageNodes[index];
+        await waitForImages(pageNode);
+        const dataUrl = await toPng(pageNode, {
+          pixelRatio: 2,
+          cacheBust: true,
+          width: A4_EXPORT_WIDTH,
+          height: A4_EXPORT_HEIGHT,
+          backgroundColor: '#ffffff',
+        });
+
+        if (index > 0) {
+          pdf.addPage('a4', 'portrait');
+        }
+        pdf.addImage(dataUrl, 'PNG', 0, 0, 210, 297);
+      }
+
+      pdf.save(`print_sheet_${Date.now()}.pdf`);
+    } catch (err) {
+      console.error('Print PDF export failed:', err);
+      alert('打印 PDF 导出失败，请检查图片后重试。');
+    }
+  };
+
+  const prepareBatchExportCard = async (card: CardData) => {
+    flushSync(() => {
+      setSingleExportWidth(CARD_WIDTH);
+      setBatchExportCard(cloneCardData(card));
+    });
+    await waitForRenderCycle();
+    return batchExportRef.current;
+  };
+
+  const handleExportSingleCard = async (card: CardData, cardId?: string) => {
+    setExportingCardId(cardId || card.serialNumber || card.name || 'card');
+    try {
+      const exportContainer = await prepareBatchExportCard(card);
+
+      if (!exportContainer || !exportContainer.firstElementChild) {
+        alert('导出环境未就绪，请重试！');
+        return;
+      }
+
+      await waitForImages(exportContainer);
+      const dataUrl = await toPng(exportContainer, {
+        pixelRatio: 3,
+        cacheBust: true,
+        width: exportContainer.offsetWidth,
+        height: exportContainer.offsetHeight,
+        filter: (node: Element) => {
+          if (node instanceof HTMLElement && node.className && typeof node.className === 'string' && node.className.includes('z-[100]')) {
+            return false;
+          }
+          return true;
+        },
+      });
+
+      triggerDownload(dataUrl, `${sanitizeFileName(card.name)}.png`);
     } catch (err) {
       console.error('Export failed:', err);
-      alert('导出失败，可能是存在跨域渲染受限图片！');
+      alert('导出失败：' + (err instanceof Error ? err.message : '可能是存在跨域渲染受限图片'));
     } finally {
       setBatchExportCard(null);
+      setExportingCardId(null);
     }
   };
 
@@ -1024,21 +540,24 @@ export default function App() {
       for (let i = 0; i < savedCards.length; i++) {
         const item = savedCards[i];
         setExportProgress({ current: i + 1, total: savedCards.length });
-        setBatchExportCard(item.cardData);
 
-        await new Promise(resolve => setTimeout(resolve, 350));
+        const exportContainer = await prepareBatchExportCard(item.cardData);
 
-        if (!batchExportRef.current) continue;
+        if (!exportContainer || !exportContainer.firstElementChild) continue;
+        await waitForImages(exportContainer);
 
-        const dataUrl = await toPng(batchExportRef.current, {
+        const dataUrl = await toPng(exportContainer, {
           pixelRatio: 3,
           cacheBust: true,
+          filter: (node: Element) => {
+            if (node instanceof HTMLElement && node.className && typeof node.className === 'string' && node.className.includes('z-[100]')) {
+              return false;
+            }
+            return true;
+          },
         });
 
-        const link = document.createElement('a');
-        link.download = `${item.cardData.name || 'card'}_${item.cardData.serialNumber || 'un'}.png`;
-        link.href = dataUrl;
-        link.click();
+        triggerDownload(dataUrl, `${sanitizeFileName(item.cardData.name)}_${sanitizeFileName(item.cardData.serialNumber || 'un')}.png`);
 
         await new Promise(resolve => setTimeout(resolve, 200));
       }
@@ -1049,47 +568,6 @@ export default function App() {
     } finally {
       setIsExportingBatch(false);
       setBatchExportCard(null);
-    }
-  };
-
-  const handleExportA4Sheet = async () => {
-    if (savedCards.length === 0) {
-      alert('您的牌库中无任何卡牌！');
-      return;
-    }
-
-    const count = Math.max(1, Math.min(A4_MAX_CARDS, savedCards.length, Number(a4CardCount) || 1));
-    const cards = savedCards.slice(0, count).map(item => JSON.parse(JSON.stringify(item.cardData)) as CardData);
-    setA4CardCount(count);
-    setA4ExportCards(cards);
-
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    if (!a4SheetRef.current) {
-      setA4ExportCards([]);
-      alert('A4 导出环境未就绪，请重试！');
-      return;
-    }
-
-    try {
-      await waitForImages(a4SheetRef.current);
-      const dataUrl = await toPng(a4SheetRef.current, {
-        pixelRatio: 2,
-        cacheBust: true,
-        width: A4_EXPORT_WIDTH,
-        height: A4_EXPORT_HEIGHT,
-        backgroundColor: '#ffffff',
-      });
-
-      const link = document.createElement('a');
-      link.download = `A4_cards_${count}_${Date.now()}.png`;
-      link.href = dataUrl;
-      link.click();
-    } catch (err) {
-      console.error('A4 export failed:', err);
-      alert('A4 整页导出失败，可能是存在跨域渲染受限图片！');
-    } finally {
-      setA4ExportCards([]);
     }
   };
 
@@ -1115,19 +593,21 @@ export default function App() {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (Array.isArray(json)) {
-          // simple schema audit
-          const valid = json.every(x => x.cardData && (x.id || x.createdAt));
-          if (!valid) {
+          const normalized = json
+            .map(normalizeSavedCard)
+            .filter((item): item is SavedCard => Boolean(item))
+            .map(item => ({
+              ...item,
+              id: `${item.id}_${Math.random().toString(36).substring(2, 5)}`,
+              cardData: cloneCardData(item.cardData),
+            }));
+
+          if (normalized.length !== json.length || normalized.length === 0) {
             alert('无效的牌库数据。数据字段格式不正确。');
             return;
           }
+
           const append = window.confirm(`检测到包含 ${json.length} 张卡牌的文件。点击【确定】将它们【追加】到当前的牌库中；或者点击【取消】将【覆盖并重置】现有牌库。`);
-          
-          const normalized = json.map(x => ({
-            ...x,
-            id: x.id ? `${x.id}_${Math.random().toString(36).substring(2, 5)}` : 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 5),
-            createdAt: x.createdAt || Date.now()
-          }));
 
           if (append) {
             setSavedCards(prev => [...prev, ...normalized]);
@@ -1162,10 +642,15 @@ export default function App() {
         const json = JSON.parse(text);
         if (Array.isArray(json)) {
           importedCards = json
-            .map(item => item.cardData ? makeSavedCard(item.cardData) : null)
-            .filter(Boolean) as SavedCard[];
-        } else if (json.cardData) {
-          importedCards = [makeSavedCard(json.cardData)];
+            .map(item => normalizeCardData(isRecord(item) && 'cardData' in item ? item.cardData : item))
+            .filter((item): item is CardData => Boolean(item))
+            .map(makeSavedCard);
+        } else if (isRecord(json) && json.cardData) {
+          const card = normalizeCardData(json.cardData);
+          importedCards = card ? [makeSavedCard(card)] : [];
+        } else {
+          const card = normalizeCardData(json);
+          importedCards = card ? [makeSavedCard(card)] : [];
         }
       } else {
         importedCards = parseImportText(text)
@@ -1185,7 +670,7 @@ export default function App() {
         setSavedCards(importedCards);
       }
 
-      setCardData(JSON.parse(JSON.stringify(importedCards[0].cardData)));
+      setCardData(cloneCardData(importedCards[0].cardData));
       setEditingCardId(importedCards[0].id);
       setActiveTab('cards_library');
       alert(`已成功批量导入 ${importedCards.length} 张卡牌。`);
@@ -1217,8 +702,7 @@ export default function App() {
     
     const newText = before + formattedKeyword + after;
     
-    const fieldPath = (cardData.cardType === 'spirit_normal' || cardData.cardType === 'spirit_resonance') ? 'spirit.effectText' : 'trace.effectText';
-    updateField(fieldPath, newText);
+    updateEffectEditorValue(newText);
 
     setTimeout(() => {
       textarea.focus();
@@ -1236,6 +720,51 @@ export default function App() {
     ? ['发动条件', '效果']
     : SPIRIT_TRAIT_ORDER;
 
+  const getEffectEditorValue = () => {
+    if (cardData.cardType === 'master') return cardData.master?.activeSkill ?? '';
+    if (cardData.cardType === 'trace') return cardData.trace?.effectText ?? '';
+    return cardData.spirit?.effectText ?? '';
+  };
+
+  const updateEffectEditorValue = (value: string) => {
+    if (cardData.cardType === 'master') {
+      updateField('master.activeSkill', value);
+      return;
+    }
+
+    if (cardData.cardType === 'trace') {
+      updateField('trace.effectText', value);
+      return;
+    }
+
+    updateField('spirit.effectText', value);
+  };
+
+  const handleEffectEditorKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+
+    event.preventDefault();
+    const textarea = event.currentTarget;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const currentValue = getEffectEditorValue();
+    const nextValue = currentValue.slice(0, start) + '\n' + currentValue.slice(end);
+    updateEffectEditorValue(nextValue);
+
+    window.setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + 1, start + 1);
+    }, 0);
+  };
+
+  const expandedPrintImages = getExpandedPrintImages();
+  const printPageCount = Math.max(1, Math.ceil(expandedPrintImages.length / PRINT_CARDS_PER_PAGE));
+  const printPages = Array.from({ length: printPageCount }, (_, pageIndex) => (
+    expandedPrintImages.slice(pageIndex * PRINT_CARDS_PER_PAGE, (pageIndex + 1) * PRINT_CARDS_PER_PAGE)
+  ));
+  const cropXs = Array.from({ length: PRINT_GRID_COLS + 1 }, (_, index) => PRINT_GRID_LEFT + PRINT_CARD_WIDTH * index);
+  const cropYs = Array.from({ length: PRINT_GRID_ROWS + 1 }, (_, index) => PRINT_GRID_TOP + PRINT_CARD_HEIGHT * index);
+
   return (
     <div className="light-app min-h-screen flex flex-col bg-neutral-950 text-neutral-200 font-sans">
       {/* Top Action Bar */}
@@ -1244,7 +773,7 @@ export default function App() {
           <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shadow-lg shadow-accent/20">
             <Zap className="w-5 h-5 text-white" />
           </div>
-          <h1 className="font-bold text-lg tracking-tight">域·卡牌生成器 <span className="text-[10px] font-mono opacity-50 ml-2">v1.1</span></h1>
+          <h1 className="font-bold text-lg tracking-tight">域·卡牌生成器 <span className="text-[10px] font-mono opacity-50 ml-2">v1.2</span></h1>
         </div>
         <div className="flex items-center gap-2">
           {editingCardId && (
@@ -1293,7 +822,7 @@ export default function App() {
                   const newCard: SavedCard = {
                     id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 5),
                     createdAt: Date.now(),
-                    cardData: JSON.parse(JSON.stringify(cardData))
+                    cardData: cloneCardData(cardData)
                   };
                   setSavedCards(prev => [newCard, ...prev]);
                   setEditingCardId(newCard.id);
@@ -1317,16 +846,245 @@ export default function App() {
             </button>
           )}
 
-          <button 
-            onClick={handleExport}
-            className="flex items-center gap-2 bg-accent hover:bg-accent/90 text-white px-4 py-1.5 rounded-lg font-bold text-xs transition-all shadow-lg shadow-accent/20 active:scale-95"
-          >
-            <Download className="w-4 h-4" />
-            导出当前卡
-          </button>
+          {activeTab === 'editor' && (
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 bg-accent hover:bg-accent/90 text-white px-4 py-1.5 rounded-lg font-bold text-xs transition-all shadow-lg shadow-accent/20 active:scale-95"
+            >
+              <Download className="w-4 h-4" />
+              导出当前卡
+            </button>
+          )}
         </div>
       </header>
 
+      {activeTab === 'print_workspace' ? (
+        <main className="flex-1 overflow-hidden bg-neutral-100 text-neutral-900">
+          <div className="h-full flex overflow-hidden">
+            <aside className="w-[340px] shrink-0 bg-white border-r border-neutral-300 flex flex-col">
+              <div className="p-4 border-b border-neutral-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-neutral-950">打印工作台</h2>
+                    <p className="text-xs text-neutral-500 mt-1">本地图片按 59mm × 86mm 排版</p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('editor')}
+                    className="text-xs font-bold px-3 py-1.5 rounded-lg border border-neutral-300 hover:border-accent hover:text-accent transition-colors"
+                  >
+                    返回编辑器
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="text-xs text-neutral-600 font-bold">纸张大小</span>
+                    <select className="mt-1 w-full border border-neutral-300 rounded-lg bg-white px-3 py-2 text-sm font-bold outline-none focus:border-accent">
+                      <option>A4 (portrait)</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-neutral-600 font-bold">卡片尺寸</span>
+                    <select className="mt-1 w-full border border-neutral-300 rounded-lg bg-white px-3 py-2 text-sm font-bold outline-none focus:border-accent">
+                      <option>小尺寸</option>
+                    </select>
+                  </label>
+                  <p className="text-xs text-neutral-500">59mm × 86mm：图片默认居中裁切。</p>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                {printImages.length === 0 ? (
+                  <div className="h-full min-h-[280px] flex flex-col items-center justify-center text-center border border-dashed border-neutral-300 rounded-xl bg-neutral-50 p-6">
+                    <ImageIcon className="w-10 h-10 text-neutral-400 mb-3" />
+                    <p className="text-sm font-bold text-neutral-700">暂无卡图</p>
+                    <p className="text-xs text-neutral-500 mt-1">点击底部按钮，从文件夹选择图片。</p>
+                  </div>
+                ) : (
+                  printImages.map(item => (
+                    <div key={item.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white p-2 shadow-sm">
+                      <div className="w-9 h-12 rounded border border-neutral-200 overflow-hidden bg-neutral-100 shrink-0">
+                        <img src={item.src} alt="" className="w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-neutral-900" title={item.name}>{item.name}</p>
+                        <div className="mt-1 flex items-center gap-1">
+                          <button
+                            onClick={() => updatePrintImageCount(item.id, item.count - 1)}
+                            className="w-7 h-7 rounded border border-neutral-300 text-lg leading-none hover:border-accent hover:text-accent"
+                            title="减少张数"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            value={item.count}
+                            onChange={(event) => updatePrintImageCount(item.id, Number(event.target.value))}
+                            className="w-16 h-7 rounded border border-neutral-300 text-center text-sm outline-none focus:border-accent"
+                          />
+                          <span className="text-xs text-neutral-500">张</span>
+                          <button
+                            onClick={() => updatePrintImageCount(item.id, item.count + 1)}
+                            className="w-7 h-7 rounded border border-neutral-300 text-lg leading-none hover:border-accent hover:text-accent"
+                            title="增加张数"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => updatePrintImageFit(item.id, item.fit === 'cover' ? 'contain' : 'cover')}
+                        className="p-1.5 rounded text-neutral-500 hover:bg-neutral-100 hover:text-accent"
+                        title={item.fit === 'cover' ? '当前：裁切填满，点击改为完整适配' : '当前：完整适配，点击改为裁切填满'}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => deletePrintImage(item.id)}
+                        className="p-1.5 rounded text-neutral-500 hover:bg-red-50 hover:text-red-600"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="p-3 border-t border-neutral-200 space-y-2">
+                <label className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-accent text-accent font-bold text-sm cursor-pointer hover:bg-accent/5 transition-colors">
+                  <ImageIcon className="w-4 h-4" />
+                  添加卡片
+                  <input type="file" accept="image/*" multiple onChange={handleAddPrintImages} className="hidden" />
+                </label>
+                <button
+                  onClick={() => setPrintImages([])}
+                  disabled={printImages.length === 0}
+                  className="w-full px-4 py-2 rounded-lg border border-neutral-300 text-neutral-600 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:border-red-300 hover:text-red-600"
+                >
+                  清空工作台
+                </button>
+              </div>
+            </aside>
+
+            <section className="flex-1 overflow-auto bg-neutral-200 p-8 custom-scrollbar">
+              <div className="min-w-[760px] flex flex-col items-center">
+                <div className="sticky top-0 z-10 mb-4 flex w-[760px] items-center justify-between rounded-lg bg-neutral-200/95 py-2 backdrop-blur">
+                  <div>
+                    <h3 className="text-base font-bold text-neutral-900">A4 预览</h3>
+                    <p className="text-xs text-neutral-500">
+                      已添加 {expandedPrintImages.length} 张，共 {printPageCount} 页。向下滚动查看后续页面。
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadPrintPdf}
+                    disabled={expandedPrintImages.length === 0}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold text-white shadow-lg transition-all active:scale-95",
+                      expandedPrintImages.length === 0
+                        ? "bg-neutral-400 cursor-not-allowed shadow-none"
+                        : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/20"
+                    )}
+                  >
+                    <Download className="w-4 h-4" />
+                    导出 PDF
+                  </button>
+                </div>
+
+                <div ref={printPagesRef} className="flex flex-col items-center gap-8 pb-10">
+                  {printPages.map((pageItems, pageIndex) => (
+                    <div
+                      key={`print-preview-page-${pageIndex}`}
+                      className="relative bg-white shadow-2xl"
+                      style={{
+                        width: A4_EXPORT_WIDTH * PRINT_PREVIEW_SCALE,
+                        height: A4_EXPORT_HEIGHT * PRINT_PREVIEW_SCALE,
+                      }}
+                    >
+                      <div
+                        style={{
+                          transform: `scale(${PRINT_PREVIEW_SCALE})`,
+                          transformOrigin: 'top left',
+                        }}
+                      >
+                        <div
+                          data-print-page="true"
+                          style={{
+                            width: `${A4_EXPORT_WIDTH}px`,
+                            height: `${A4_EXPORT_HEIGHT}px`,
+                            background: '#ffffff',
+                            boxSizing: 'border-box',
+                            position: 'relative',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: `${PRINT_GRID_LEFT}px`,
+                              top: `${PRINT_GRID_TOP}px`,
+                              width: `${PRINT_GRID_WIDTH}px`,
+                              height: `${PRINT_GRID_HEIGHT}px`,
+                              display: 'grid',
+                              gridTemplateColumns: `repeat(${PRINT_GRID_COLS}, ${PRINT_CARD_WIDTH}px)`,
+                              gridTemplateRows: `repeat(${PRINT_GRID_ROWS}, ${PRINT_CARD_HEIGHT}px)`,
+                              gap: 0,
+                            }}
+                          >
+                            {Array.from({ length: PRINT_CARDS_PER_PAGE }).map((_, index) => {
+                              const item = pageItems[index];
+                              return (
+                                <div
+                                  key={item ? `${item.id}-${item.copyIndex}` : `empty-${pageIndex}-${index}`}
+                                  style={{
+                                    width: `${PRINT_CARD_WIDTH}px`,
+                                    height: `${PRINT_CARD_HEIGHT}px`,
+                                    overflow: 'hidden',
+                                    background: '#ffffff',
+                                  }}
+                                >
+                                  {item && (
+                                    <img
+                                      src={item.src}
+                                      alt=""
+                                      style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: item.fit,
+                                        display: 'block',
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {cropXs.map((x) => (
+                            <React.Fragment key={`crop-x-${pageIndex}-${x}`}>
+                              <div style={{ position: 'absolute', left: `${x}px`, top: `${PRINT_GRID_TOP - PRINT_CROP_MARK_LENGTH}px`, width: '1px', height: `${PRINT_CROP_MARK_LENGTH - 8}px`, background: '#8a8a8a' }} />
+                              <div style={{ position: 'absolute', left: `${x}px`, top: `${PRINT_GRID_TOP + PRINT_GRID_HEIGHT + 8}px`, width: '1px', height: `${PRINT_CROP_MARK_LENGTH - 8}px`, background: '#8a8a8a' }} />
+                            </React.Fragment>
+                          ))}
+
+                          {cropYs.map((y) => (
+                            <React.Fragment key={`crop-y-${pageIndex}-${y}`}>
+                              <div style={{ position: 'absolute', left: `${PRINT_GRID_LEFT - PRINT_CROP_MARK_LENGTH}px`, top: `${y}px`, width: `${PRINT_CROP_MARK_LENGTH - 8}px`, height: '1px', background: '#8a8a8a' }} />
+                              <div style={{ position: 'absolute', left: `${PRINT_GRID_LEFT + PRINT_GRID_WIDTH + 8}px`, top: `${y}px`, width: `${PRINT_CROP_MARK_LENGTH - 8}px`, height: '1px', background: '#8a8a8a' }} />
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+      ) : (
       <main className="flex-1 flex overflow-hidden">
         {/* Left: Preview */}
         <section className="w-1/2 flex items-center justify-center p-12 bg-neutral-950 relative overflow-y-auto custom-scrollbar">
@@ -1408,6 +1166,16 @@ export default function App() {
               )}
             </button>
             <button 
+              onClick={() => setActiveTab('print_workspace')}
+              className={cn(
+                "flex-1 py-3.5 flex items-center justify-center gap-1.5 font-bold text-xs transition-all border-r border-white/5",
+                activeTab === 'print_workspace' ? "text-accent bg-white/5 border-b-2 border-accent" : "text-neutral-500 hover:text-neutral-300"
+              )}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              打印工作台
+            </button>
+            <button 
               onClick={() => setActiveTab('library')}
               className={cn(
                 "flex-1 py-3.5 flex items-center justify-center gap-1.5 font-bold text-xs transition-all",
@@ -1429,37 +1197,6 @@ export default function App() {
                     <p className="text-[10px] text-neutral-500 mt-1">本地共存储了 {savedCards.length} 张卡牌</p>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    {/* A4 Sheet Export */}
-                    <div className="flex items-center gap-1 rounded-lg border border-neutral-300 bg-white px-2 py-1 shadow-sm">
-                      <span className="text-[10px] font-bold text-neutral-500">A4</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={Math.min(A4_MAX_CARDS, Math.max(1, savedCards.length))}
-                        value={a4CardCount}
-                        onChange={(event) => {
-                          const value = Number(event.target.value) || 1;
-                          setA4CardCount(Math.max(1, Math.min(A4_MAX_CARDS, value)));
-                        }}
-                        className="w-11 bg-neutral-100 border border-neutral-300 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-neutral-900 outline-none focus:border-accent"
-                        title="A4 页面内排版的卡牌数量"
-                      />
-                      <button
-                        onClick={handleExportA4Sheet}
-                        disabled={savedCards.length === 0}
-                        className={cn(
-                          "flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-md transition-all",
-                          savedCards.length === 0
-                            ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
-                            : "bg-neutral-900 hover:bg-neutral-800 text-white active:scale-95"
-                        )}
-                        title="把牌库前 N 张卡牌排版到一张 A4 白底 PNG 中导出"
-                      >
-                        <FileText className="w-3 h-3" />
-                        A4导出
-                      </button>
-                    </div>
-
                     {/* Bulk Export Button */}
                     <button 
                       onClick={handleBatchExport}
@@ -1472,7 +1209,7 @@ export default function App() {
                       )}
                     >
                       <Zap className={cn("w-3 h-3", isExportingBatch && "animate-spin")} />
-                      批量导出
+                      批量PNG
                     </button>
                     
                     {/* Word/Text batch import button */}
@@ -1499,7 +1236,7 @@ export default function App() {
                       title="备份牌库为 JSON 文件"
                     >
                       <Save className="w-3 h-3" />
-                      导出
+                      备份JSON
                     </button>
 
                     {/* Clear Library button */}
@@ -1590,7 +1327,7 @@ export default function App() {
                                 {item.cardData.name || '未命名卡牌'}
                               </h4>
                               {/* Serial */}
-                              <span className="text-[10px] font-mono text-neutral-500 shrink-0">
+                              <span className="text-[10px] text-neutral-500 shrink-0">
                                 {item.cardData.serialNumber || 'AA-000'}
                               </span>
                             </div>
@@ -1646,11 +1383,16 @@ export default function App() {
 
                             {/* Export PNG */}
                             <button 
-                              onClick={() => handleExportSingleCard(item.cardData)}
-                              className="p-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent hover:text-white transition"
+                              onClick={() => handleExportSingleCard(item.cardData, item.id)}
+                              disabled={exportingCardId === item.id}
+                              className={cn(
+                                "flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent hover:text-white transition disabled:opacity-60 disabled:cursor-wait text-[11px] font-bold",
+                                exportingCardId === item.id && "bg-accent text-white"
+                              )}
                               title="将此卡片渲染导出为高保真 PNG"
                             >
-                              <Download className="w-3.5 h-3.5" />
+                              <Download className={cn("w-3.5 h-3.5", exportingCardId === item.id && "animate-pulse")} />
+                              高清PNG
                             </button>
 
                             {/* Delete */}
@@ -1704,7 +1446,7 @@ export default function App() {
                         type="text" 
                         value={cardData.name}
                         onChange={(e) => updateField('name', e.target.value)}
-                        className="w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-accent transition-colors"
+                        className="w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-accent transition-colors font-sans"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1877,7 +1619,7 @@ export default function App() {
                                 onChange={(e) => updateField('spirit.race', e.target.value)}
                                 className="w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-accent transition-colors appearance-none"
                               >
-                                {['人界', '天界', '魔界', '机界', '精灵界', '兽界', '龙界'].map(r => (
+                                {['人界域', '天界域', '魔界域', '机界域', '精灵界域', '兽界域', '龙界域'].map(r => (
                                   <option key={r} value={r}>{r}</option>
                                 ))}
                               </select>
@@ -2000,8 +1742,9 @@ export default function App() {
                       <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">效果文本</label>
                       <textarea 
                         ref={effectTextRef}
-                        value={(cardData.cardType === 'spirit_normal' || cardData.cardType === 'spirit_resonance') ? cardData.spirit.effectText : cardData.trace.effectText}
-                        onChange={(e) => updateField((cardData.cardType === 'spirit_normal' || cardData.cardType === 'spirit_resonance') ? 'spirit.effectText' : 'trace.effectText', e.target.value)}
+                        value={getEffectEditorValue()}
+                        onKeyDown={handleEffectEditorKeyDown}
+                        onChange={(e) => updateEffectEditorValue(e.target.value)}
                         className="w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-accent transition-colors h-32 resize-none font-sans text-sm"
                       />
                     </div>
@@ -2101,6 +1844,7 @@ export default function App() {
           </div>
         </section>
       </main>
+      )}
 
       {/* Off-screen CardPreview for high-fidelity export, free from styling zooms/scales */}
       <div
@@ -2113,68 +1857,15 @@ export default function App() {
 
       {/* Off-screen CardPreview for card library single & batch exports */}
       <div
-        className="fixed pointer-events-none" style={{ left: '5000px', top: '1000px', width: `${CARD_WIDTH}px`, overflow: 'visible' }}
+        className="fixed pointer-events-none" style={{ left: '5000px', top: '1000px', width: `${singleExportWidth}px`, overflow: 'visible' }}
       >
-        <div ref={batchExportRef} style={{ width: `${CARD_WIDTH}px`, height: `${CARD_HEIGHT}px`, transform: 'none', transition: 'none', position: 'relative' }}>
+        <div ref={batchExportRef} style={{ width: `${singleExportWidth}px`, height: `${Math.round(singleExportWidth * 86 / 59)}px`, transform: 'none', transition: 'none', position: 'relative' }}>
           {batchExportCard && (
-            <CardPreview data={batchExportCard} assets={assets} showGrid={false} forExport />
+            <CardPreview data={batchExportCard} assets={assets} showGrid={false} />
           )}
         </div>
       </div>
 
-      {/* Off-screen A4 sheet export */}
-      <div
-        className="fixed pointer-events-none"
-        style={{ left: '5000px', top: '1800px', width: `${A4_EXPORT_WIDTH}px`, overflow: 'visible' }}
-      >
-        {a4ExportCards.length > 0 && (() => {
-          const layout = getA4Layout(a4ExportCards.length);
-          const scale = layout.cardWidth / CARD_WIDTH;
-
-          return (
-            <div
-              ref={a4SheetRef}
-              style={{
-                width: `${A4_EXPORT_WIDTH}px`,
-                height: `${A4_EXPORT_HEIGHT}px`,
-                background: '#ffffff',
-                padding: `${A4_PADDING}px`,
-                boxSizing: 'border-box',
-                display: 'grid',
-                gridTemplateColumns: `repeat(${layout.cols}, ${layout.cardWidth}px)`,
-                gridTemplateRows: `repeat(${layout.rows}, ${layout.cardHeight}px)`,
-                gap: `${A4_GAP}px`,
-                alignContent: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {a4ExportCards.map((card, index) => (
-                <div
-                  key={`${card.serialNumber || card.name || 'card'}-${index}`}
-                  style={{
-                    width: `${layout.cardWidth}px`,
-                    height: `${layout.cardHeight}px`,
-                    overflow: 'hidden',
-                    outline: '1px dashed rgba(15, 23, 42, 0.35)',
-                    background: '#ffffff',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${CARD_WIDTH}px`,
-                      height: `${CARD_HEIGHT}px`,
-                      transform: `scale(${scale})`,
-                      transformOrigin: 'top left',
-                    }}
-                  >
-                    <CardPreview data={card} assets={assets} showGrid={false} forExport />
-                  </div>
-                </div>
-              ))}
-            </div>
-          );
-        })()}
-      </div>
     </div>
   );
 }
