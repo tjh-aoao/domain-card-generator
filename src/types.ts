@@ -61,6 +61,8 @@ export interface CardData {
 export interface SavedCard {
   id: string;
   createdAt: number;
+  groupId?: string;
+  assetsSnapshot?: AssetLibrary;
   cardData: CardData;
 }
 
@@ -69,24 +71,24 @@ export const INITIAL_ASSETS: AssetLibrary = {
     master: "https://picsum.photos/seed/master-bg/400/533",
     spirit_normal: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/cQNk/2787X4063/%E6%99%AE%E9%80%9A%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE.png",
     spirit_resonance: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260323/PQ9C/2787X4063/%E5%85%B1%E9%B8%A3%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE.png",
-    trace: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260323/M2Zy/2787X4063/%E7%97%95%E8%BF%B9%E5%BA%95%E5%9B%BE.png",
+    trace: "/assets/card-templates/trace-template.png",
   },
   attributes: {
-    "蓝": "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/KhIq/278X406/%E8%93%9D.png",
-    "绿": "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/QXtW/278X406/%E7%BB%BF.png",
-    "黄": "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/1uyw/278X406/%E9%BB%84.png",
-    "白": "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/vNSY/278X406/%E7%99%BD.png",
-    "黑": "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/wNih/278X406/%E9%BB%91.png",
-    "红": "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/xuVK/278X406/%E7%BA%A2.png",
-    "痕迹": "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260323/HrKq/278X406/%E7%97%95.png",
+    "蓝": "/assets/card-icons/attr-blue.png",
+    "绿": "/assets/card-icons/attr-green.png",
+    "黄": "/assets/card-icons/attr-yellow.png",
+    "白": "/assets/card-icons/attr-white.png",
+    "黑": "/assets/card-icons/attr-black.png",
+    "红": "/assets/card-icons/attr-red.png",
+    "痕迹": "/assets/card-icons/attr-trace.png",
   },
   costs: {
-    1: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/qHQF/278X406/1.png",
-    2: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/hh6c/278X406/2.png",
-    3: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/VRhZ/278X406/3.png",
-    4: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/aO73/278X406/4.png",
-    5: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/Xfp0/278X406/5.png",
-    6: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/hXX6/278X406/6.png",
+    1: "/assets/card-icons/cost-1.png",
+    2: "/assets/card-icons/cost-2.png",
+    3: "/assets/card-icons/cost-3.png",
+    4: "/assets/card-icons/cost-4.png",
+    5: "/assets/card-icons/cost-5.png",
+    6: "/assets/card-icons/cost-6.png",
   }
 };
 

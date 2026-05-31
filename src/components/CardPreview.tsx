@@ -36,6 +36,29 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
   exportWidth?: number,
   onImageAdjust?: (scale: number, offset: { x: number, y: number }) => void
 }>(({ data, assets, showGrid, forExport, exportWidth = CARD_WIDTH, onImageAdjust }, ref) => {
+  const effectText =
+    data.cardType === 'master'
+      ? [data.master?.triggerCondition, data.master?.activeSkill, data.master?.passiveSkill].filter(Boolean).join('\n')
+      : data.cardType === 'trace'
+        ? data.trace?.effectText ?? ''
+        : data.spirit?.effectText ?? '';
+  const effectPlainLength = effectText.replace(/\s/g, '').length;
+  const effectLineCount = effectText ? effectText.split('\n').length : 0;
+  const effectTagCount = (effectText.match(/【.*?】/g) || []).length;
+  const effectPressure =
+    effectPlainLength +
+    effectLineCount * 8 +
+    effectTagCount * 5 +
+    (data.cardType === 'spirit_resonance' ? 24 : 0);
+  const effectTypography =
+    effectPressure > 210
+      ? { fontSize: 9, lineHeight: 1.08, labelFontSize: 8, labelHeight: 10, labelPaddingX: 2, paragraphMarginBottom: 0 }
+      : effectPressure > 160
+        ? { fontSize: 10, lineHeight: 1.12, labelFontSize: 9, labelHeight: 11, labelPaddingX: 3, paragraphMarginBottom: 1 }
+        : effectPressure > 120
+          ? { fontSize: 11, lineHeight: 1.18, labelFontSize: 10, labelHeight: 12, labelPaddingX: 3, paragraphMarginBottom: 1 }
+          : { fontSize: 12, lineHeight: 1.25, labelFontSize: 11, labelHeight: 14, labelPaddingX: 4, paragraphMarginBottom: 2 };
+
   const renderFormattedLine = (line: string) => {
     const keywords = ['限制', '登场', '共鸣', '战斗', '吟唱', '遗言', '普通', '结界', '痕迹', '退场', '领域', '发动条件', '效果'];
     const pattern = /【(.*?)】/g;
@@ -51,7 +74,16 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
 
       parts.push(
         keywords.includes(label) ? (
-          <span key={`${match.index}-${label}`} className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative -top-[0.5px] align-middle leading-none">
+          <span
+            key={`${match.index}-${label}`}
+            className="bg-neutral-900 text-white rounded-[2px] font-black mr-1 inline-flex items-center justify-center relative -top-[0.5px] align-middle leading-none"
+            style={{
+              fontSize: `${effectTypography.labelFontSize}px`,
+              height: `${effectTypography.labelHeight}px`,
+              paddingLeft: `${effectTypography.labelPaddingX}px`,
+              paddingRight: `${effectTypography.labelPaddingX}px`,
+            }}
+          >
             {label}
           </span>
         ) : (
@@ -74,14 +106,22 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
   const formatText = (text?: string) => {
     if (!text) return null;
     return String(text).split('\n').map((line, i) => (
-      <p key={i} className="mb-0.5 leading-[1.3] text-justify break-all">
+      <p
+        key={i}
+        className="text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character] [text-wrap:pretty]"
+        style={{
+          lineHeight: effectTypography.lineHeight,
+          marginBottom: `${effectTypography.paragraphMarginBottom}px`,
+        }}
+      >
         {renderFormattedLine(line)}
       </p>
     ));
   };
 
   const templateImg = assets.templates[data.cardType];
-  const attrIcon = assets.attributes[data.attribute];
+  const displayedAttribute = data.cardType === 'trace' ? '痕迹' : data.attribute;
+  const attrIcon = assets.attributes[displayedAttribute] || assets.attributes[data.attribute];
   const isSpiritCard = data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance';
   const costValue = isSpiritCard ? data.spirit?.cost : data.trace?.cost;
   const normalizedCostValue = Number.isFinite(costValue) ? Number(costValue) : 0;
@@ -125,6 +165,17 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       onImageAdjust?.(illustrationScale, illustrationOffset);
     }
   };
+
+  const renderAssetIcon = (src: string, alt: string, key: string) => (
+    <img
+      key={key}
+      src={getProxiedUrl(src)}
+      alt={alt}
+      className="w-full h-full object-cover object-center"
+      referrerPolicy="no-referrer"
+      crossOrigin="anonymous"
+    />
+  );
 
   return (
     <div
@@ -175,44 +226,32 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         )}
       </div>
 
-      <div className="absolute top-[1.2%] left-[5%] right-[2%] h-[5.5%] flex items-center justify-between z-10">
-        <h2 className="text-[15px] font-black tracking-tighter text-neutral-900 drop-shadow-sm truncate max-w-[65%] leading-[1.2] py-0.5">
+      <div className="absolute top-[1.2%] left-[5%] right-[4%] h-[5.5%] flex items-center justify-between z-10">
+        <h2 className="text-[20px] font-black tracking-tighter text-neutral-900 drop-shadow-sm truncate max-w-[65%] leading-[1.15] py-0.5">
           {data.name}
         </h2>
         <div className="flex items-center">
           {showCost && (
             <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden z-10">
               {costIcon ? (
-                <img
-                  src={getProxiedUrl(costIcon)}
-                  alt={`cost-${normalizedCostValue}`}
-                  className="w-full h-full object-contain"
-                  referrerPolicy="no-referrer"
-                  crossOrigin="anonymous"
-                />
+                renderAssetIcon(costIcon, `cost-${normalizedCostValue}`, `cost-${normalizedCostValue}-${costIcon}`)
               ) : (
                 <span className="text-[18px] font-black text-neutral-900">{normalizedCostValue || ''}</span>
               )}
             </div>
           )}
-          <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden ml-[-8px] z-20">
+          <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden ml-[-2px] z-20">
             {attrIcon ? (
-              <img
-                src={getProxiedUrl(attrIcon)}
-                alt={data.attribute}
-                className="w-full h-full object-contain"
-                referrerPolicy="no-referrer"
-                crossOrigin="anonymous"
-              />
+              renderAssetIcon(attrIcon, displayedAttribute, `attr-${displayedAttribute}-${attrIcon}`)
             ) : (
-              <span className="text-[14px] font-black text-neutral-900">{data.attribute}</span>
+              <span className="text-[14px] font-black text-neutral-900">{displayedAttribute}</span>
             )}
           </div>
         </div>
       </div>
 
       <div className="absolute top-[66.8%] left-[4%] right-[7%] h-[4%] flex items-center justify-between z-10 whitespace-nowrap">
-        <div className="text-[10px] font-medium text-neutral-900 text-left tracking-[-0.08em] leading-none whitespace-nowrap">
+        <div className="text-[15px] font-medium text-neutral-900 text-left tracking-[-0.08em] leading-none whitespace-nowrap">
           {data.cardType === 'master' && <span>【域主 / {data.master?.state ?? ''}】</span>}
           {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
             <span>【{data.spirit?.race ?? ''} / {data.spirit?.trait ?? ''}】</span>
@@ -220,30 +259,36 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
           {data.cardType === 'trace' && <span>【痕迹 / {data.trace?.traceType ?? ''}】</span>}
         </div>
         {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-          <div className="text-[10px] font-medium text-neutral-900 text-right tracking-[-0.08em] leading-none whitespace-nowrap">
+          <div className="text-[15px] font-medium text-neutral-900 text-right tracking-[-0.08em] leading-none whitespace-nowrap">
             ZP: {data.spirit?.domainValue ?? 0} / ATK: {data.spirit?.attack ?? 0}
           </div>
         )}
       </div>
 
-      <div className="absolute top-[72%] left-[6%] right-[34%] bottom-[9%] py-0.5 text-[7px] leading-[1.45] text-neutral-900 font-medium overflow-hidden z-10 break-all whitespace-pre-wrap">
+      <div
+        className="absolute top-[72%] left-[6%] right-[34%] bottom-[9%] py-0.5 text-neutral-900 font-medium overflow-hidden z-10 break-words whitespace-pre-wrap [word-break:normal] [overflow-wrap:break-word] [text-justify:inter-character] [text-wrap:pretty]"
+        style={{
+          fontSize: `${effectTypography.fontSize}px`,
+          lineHeight: effectTypography.lineHeight,
+        }}
+      >
         {data.cardType === 'master' && (
           <div className="space-y-1">
             {data.master?.triggerCondition && (
               <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative top-[1px] shrink-0">觉醒条件</span>
+                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0">觉醒条件</span>
                 <span className="flex-1">{data.master.triggerCondition}</span>
               </div>
             )}
             {data.master?.activeSkill && (
               <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative top-[1px] shrink-0">主动</span>
+                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0">主动</span>
                 <span className="flex-1">{data.master.activeSkill}</span>
               </div>
             )}
             {data.master?.passiveSkill && (
               <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[6px] h-[9px] inline-flex items-center justify-center relative top-[1px] shrink-0">被动</span>
+                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0">被动</span>
                 <span className="flex-1">{data.master.passiveSkill}</span>
               </div>
             )}
@@ -251,20 +296,20 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         )}
         {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && formatText(data.spirit?.effectText)}
         {data.cardType === 'trace' && (
-          <div className="space-y-1">
+          <div>
             {formatText(data.trace?.effectText)}
           </div>
         )}
       </div>
 
       <div className="absolute bottom-[1.5%] left-[6%] right-[6%] h-[3%] flex items-center justify-end z-10">
-        <div className="text-[7px] text-neutral-900 opacity-70">
+        <div className="text-[10px] text-neutral-900 opacity-70">
           {data.serialNumber}
         </div>
       </div>
 
-      {(data.cardType === 'master' || data.cardType === 'spirit_resonance') && (
-        <div className="absolute bottom-[12%] right-[9%] z-20 scale-[0.8] origin-bottom-right">
+      {data.cardType === 'spirit_resonance' && (
+        <div className="absolute bottom-[10%] right-[7%] z-20 scale-[1.8] origin-bottom-right">
           <MatrixDisplay matrix={data.matrix} />
         </div>
       )}

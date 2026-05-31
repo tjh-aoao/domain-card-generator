@@ -55,6 +55,29 @@ assert.equal(simpleCards[1].trace.cost, 1);
 assert.equal(simpleCards[1].trace.traceType, '普通');
 assert.equal(simpleCards[1].trace.effectText, '【效果】 抽1张卡');
 
+const fullWidthMatrixCards = parseImportText(`
+机降灵-埃克西亚｜2｜红
+1500｜200
+2｜5｜7
+【机界域｜登场｜共鸣】
+登场：选择自己场上1只战斗状态的域灵，让其攻击力上升500。
+共鸣：支付1点域能，抽1张卡。
+
+机降驱动｜1｜痕迹
+【通常】
+效果：选择1张手牌，将其返回卡组。
+`).map(fieldsToCardData);
+
+assert.equal(fullWidthMatrixCards.length, 2);
+assert.equal(fullWidthMatrixCards[0].cardType, 'spirit_resonance');
+assert.equal(fullWidthMatrixCards[0].spirit.race, '机界域');
+assert.deepEqual(fullWidthMatrixCards[0].spirit.keywords, ['登场', '共鸣']);
+assert.equal(fullWidthMatrixCards[0].matrix[9], 1);
+assert.equal(fullWidthMatrixCards[0].matrix[12], 1);
+assert.equal(fullWidthMatrixCards[0].matrix[14], 1);
+assert(fullWidthMatrixCards[0].spirit.effectText.includes('【登场】 选择自己场上1只战斗状态的域灵'));
+assert.equal(fullWidthMatrixCards[1].cardType, 'trace');
+
 assert.deepEqual(
   parseMatrix('1010101010101010', INITIAL_CARD_DATA.matrix),
   [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]

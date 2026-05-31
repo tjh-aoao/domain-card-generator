@@ -47,7 +47,7 @@ function normalizeFieldKey(key: string) {
 }
 
 export function splitList(value: string) {
-  return value.split(/[,\u3001，/|；;]+/).map(item => item.trim()).filter(Boolean);
+  return value.split(/[,\u3001，/|｜；;]+/).map(item => item.trim()).filter(Boolean);
 }
 
 function parseNumber(value: string, fallback: number) {
@@ -192,6 +192,13 @@ function normalizeTextLines(text: string) {
   return text.replace(/\r\n?/g, '\n').split('\n').map(line => line.trim());
 }
 
+function isMatrixLine(line: string) {
+  const numbers = line.match(/-?\d+/g)?.map(Number) || [];
+  if (numbers.length < 2) return false;
+  const withoutNumbersAndSeparators = line.replace(/-?\d+/g, '').replace(/[|｜,，、\s]/g, '');
+  return withoutNumbersAndSeparators.length === 0 && numbers.every(num => MATRIX_LABELS.includes(num));
+}
+
 function splitSimpleCardBlocks(text: string) {
   const blocks: string[][] = [];
   let current: string[] = [];
@@ -209,7 +216,7 @@ function splitSimpleCardBlocks(text: string) {
       pushCurrent();
       continue;
     }
-    if (headerPattern.test(line) && current.length > 0) {
+    if (headerPattern.test(line) && !isMatrixLine(line) && current.length > 0) {
       pushCurrent();
     }
     current.push(line);

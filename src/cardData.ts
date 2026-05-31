@@ -1,6 +1,7 @@
 import { AssetLibrary, CardData, CardType, INITIAL_ASSETS, INITIAL_CARD_DATA, SavedCard } from './types';
 
 const CARD_TYPES: CardType[] = ['master', 'spirit_normal', 'spirit_resonance', 'trace'];
+const OLD_TRACE_TEMPLATE_URL = 'https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260323/M2Zy/2787X4063/%E7%97%95%E8%BF%B9%E5%BA%95%E5%9B%BE.png';
 
 export function deepClone<T>(value: T): T {
   return typeof structuredClone === 'function'
@@ -117,11 +118,17 @@ function normalizeCostMap(defaults: AssetLibrary['costs'], value: unknown): Asse
 export function normalizeAssetLibrary(value: unknown): AssetLibrary {
   if (!isRecord(value)) return deepClone(INITIAL_ASSETS);
 
-  return {
+  const assets = {
     templates: normalizeStringMap(INITIAL_ASSETS.templates, value.templates),
     attributes: normalizeStringMap(INITIAL_ASSETS.attributes, value.attributes),
     costs: normalizeCostMap(INITIAL_ASSETS.costs, value.costs),
   };
+
+  if (assets.templates.trace === OLD_TRACE_TEMPLATE_URL) {
+    assets.templates.trace = INITIAL_ASSETS.templates.trace;
+  }
+
+  return assets;
 }
 
 export function normalizeSavedCard(value: unknown): SavedCard | null {
@@ -132,6 +139,8 @@ export function normalizeSavedCard(value: unknown): SavedCard | null {
   return {
     id: asString(value.id, 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8)),
     createdAt: asNumber(value.createdAt, Date.now()),
+    groupId: typeof value.groupId === 'string' ? value.groupId : undefined,
+    assetsSnapshot: isRecord(value.assetsSnapshot) ? normalizeAssetLibrary(value.assetsSnapshot) : undefined,
     cardData,
   };
 }
@@ -140,10 +149,11 @@ export function cloneCardData(cardData: CardData) {
   return deepClone(cardData);
 }
 
-export function makeSavedCard(cardData: CardData): SavedCard {
+export function makeSavedCard(cardData: CardData, assetsSnapshot?: AssetLibrary): SavedCard {
   return {
     id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8),
     createdAt: Date.now(),
+    assetsSnapshot: assetsSnapshot ? deepClone(assetsSnapshot) : undefined,
     cardData: cloneCardData(cardData),
   };
 }

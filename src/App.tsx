@@ -21,9 +21,6 @@ import {
   Library,
   Settings,
   Info,
-  ZoomIn,
-  ZoomOut,
-  Maximize,
   Edit,
   Copy,
   FileJson,
@@ -52,6 +49,12 @@ interface PrintImageItem {
   src: string;
   count: number;
   fit: PrintImageFit;
+}
+
+interface LibraryGroup {
+  id: string;
+  name: string;
+  createdAt: number;
 }
 
 const PRINT_CARD_WIDTH = Math.round(A4_EXPORT_WIDTH * 59 / 210);
@@ -138,7 +141,6 @@ export default function App() {
   const [cardData, setCardData] = useState<CardData>(INITIAL_CARD_DATA);
   const [assets, setAssets] = useState<AssetLibrary>(INITIAL_ASSETS);
   const [activeTab, setActiveTab] = useState<AppTab>('editor');
-  const [zoomLevel, setZoomLevel] = useState(2.6);
   const [showGrid, setShowGrid] = useState(false);
   
   // Card library states
@@ -146,17 +148,40 @@ export default function App() {
     try {
       const saved = localStorage.getItem('spirit_card_library');
       const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed)
-        ? parsed.map(normalizeSavedCard).filter((item): item is SavedCard => Boolean(item))
-        : [];
+      const cards = Array.isArray(parsed) ? parsed : (isRecord(parsed) && Array.isArray(parsed.cards) ? parsed.cards : []);
+      return cards.map(normalizeSavedCard).filter((item): item is SavedCard => Boolean(item));
     } catch {
       return [];
     }
   });
+  const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[]>(() => {
+    try {
+      const savedGroups = localStorage.getItem('spirit_card_library_groups');
+      const parsedGroups = savedGroups ? JSON.parse(savedGroups) : null;
+      const savedLibrary = localStorage.getItem('spirit_card_library');
+      const parsedLibrary = savedLibrary ? JSON.parse(savedLibrary) : null;
+      const groups = Array.isArray(parsedGroups)
+        ? parsedGroups
+        : (isRecord(parsedLibrary) && Array.isArray(parsedLibrary.groups) ? parsedLibrary.groups : []);
+
+      return groups
+        .filter(isRecord)
+        .map(group => ({
+          id: typeof group.id === 'string' ? group.id : '',
+          name: typeof group.name === 'string' ? group.name.trim() : '',
+          createdAt: typeof group.createdAt === 'number' ? group.createdAt : Date.now(),
+        }))
+        .filter(group => group.id && group.name);
+    } catch {
+      return [];
+    }
+  });
+  const [activeGroupId, setActiveGroupId] = useState<'all' | 'ungrouped' | string>('all');
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [isExportingBatch, setIsExportingBatch] = useState(false);
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
   const [batchExportCard, setBatchExportCard] = useState<CardData | null>(null);
+  const [batchExportAssets, setBatchExportAssets] = useState<AssetLibrary | null>(null);
   const [exportingCardId, setExportingCardId] = useState<string | null>(null);
   const [singleExportWidth, setSingleExportWidth] = useState(CARD_WIDTH);
   const [printImages, setPrintImages] = useState<PrintImageItem[]>([]);
@@ -171,6 +196,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('spirit_card_library', JSON.stringify(savedCards));
   }, [savedCards]);
+
+  useEffect(() => {
+    localStorage.setItem('spirit_card_library_groups', JSON.stringify(libraryGroups));
+  }, [libraryGroups]);
 
   const updateField = (path: string, value: any) => {
     const keys = path.split('.');
@@ -194,6 +223,12 @@ export default function App() {
         [key]: value
       }
     }));
+  };
+
+  const makeAssetsSnapshot = () => deepClone(assets);
+
+  const getCardExportAssets = (saved: SavedCard) => {
+    return saved.assetsSnapshot ? deepClone(saved.assetsSnapshot) : makeAssetsSnapshot();
   };
 
   const handleImageAdjust = (scale: number, offset: { x: number, y: number }) => {
@@ -227,14 +262,16 @@ export default function App() {
   };
 
   const handleExport = async () => {
-    const cardEl = previewRef.current;
+    const cardEl = exportRef.current;
     if (!cardEl) return;
 
     try {
-      await waitForImages(cardEl);
+      await waitForExportReady(cardEl);
       const dataUrl = await toPng(cardEl, {
         pixelRatio: 3,
         cacheBust: true,
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
         filter: (node: Element) => {
           if (node instanceof HTMLElement && node.className && typeof node.className === 'string' && node.className.includes('z-[100]')) {
             return false;
@@ -299,6 +336,7 @@ export default function App() {
         if (item.id === editingCardId) {
           return {
             ...item,
+            assetsSnapshot: makeAssetsSnapshot(),
             cardData: cloneCardData(cardData)
           };
         }
@@ -310,12 +348,53 @@ export default function App() {
       const newCard: SavedCard = {
         id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 5),
         createdAt: Date.now(),
+        groupId: activeGroupId !== 'all' && activeGroupId !== 'ungrouped' ? activeGroupId : undefined,
+        assetsSnapshot: makeAssetsSnapshot(),
         cardData: cloneCardData(cardData)
       };
       setSavedCards(prev => [newCard, ...prev]);
       setEditingCardId(newCard.id); // switch into editing mode for this added card
       alert(`已成功将高级卡牌【${cardName}】添加至您的牌库！`);
     }
+  };
+
+  const createLibraryGroup = () => {
+    const name = window.prompt('请输入新分组名称：')?.trim();
+    if (!name) return;
+
+    const exists = libraryGroups.some(group => group.name === name);
+    if (exists) {
+      alert('已经有同名分组了。');
+      return;
+    }
+
+    const group: LibraryGroup = {
+      id: 'group_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6),
+      name,
+      createdAt: Date.now(),
+    };
+    setLibraryGroups(prev => [...prev, group]);
+    setActiveGroupId(group.id);
+  };
+
+  const deleteLibraryGroup = (groupId: string, groupName: string) => {
+    const cardCount = savedCards.filter(card => card.groupId === groupId).length;
+    const message = cardCount > 0
+      ? `确定删除分组【${groupName}】吗？其中 ${cardCount} 张卡牌会移动到“未分组”，不会删除卡牌。`
+      : `确定删除分组【${groupName}】吗？`;
+    if (!window.confirm(message)) return;
+
+    setLibraryGroups(prev => prev.filter(group => group.id !== groupId));
+    setSavedCards(prev => prev.map(card => card.groupId === groupId ? { ...card, groupId: undefined } : card));
+    if (activeGroupId === groupId) setActiveGroupId('all');
+  };
+
+  const updateCardGroup = (cardId: string, groupId: string) => {
+    setSavedCards(prev => prev.map(card => (
+      card.id === cardId
+        ? { ...card, groupId: groupId === 'ungrouped' ? undefined : groupId }
+        : card
+    )));
   };
 
   const loadCardFromLibrary = (saved: SavedCard) => {
@@ -337,6 +416,8 @@ export default function App() {
     const clonedCard: SavedCard = {
       id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 5),
       createdAt: Date.now(),
+      groupId: saved.groupId,
+      assetsSnapshot: saved.assetsSnapshot ? deepClone(saved.assetsSnapshot) : undefined,
       cardData: {
         ...cloneCardData(saved.cardData),
         name: saved.cardData.name ? `${saved.cardData.name} (副本)` : '未命名卡牌 (副本)'
@@ -355,6 +436,12 @@ export default function App() {
   const waitForRenderCycle = async () => {
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  };
+
+  const waitForFonts = async () => {
+    if ('fonts' in document) {
+      await document.fonts.ready.catch(() => undefined);
+    }
   };
 
   const waitForImages = async (container: HTMLElement) => {
@@ -379,6 +466,13 @@ export default function App() {
         image.addEventListener('error', done, { once: true });
       });
     }));
+  };
+
+  const waitForExportReady = async (container: HTMLElement) => {
+    await waitForRenderCycle();
+    await waitForFonts();
+    await waitForImages(container);
+    await waitForRenderCycle();
   };
 
   const readPrintImageFile = (file: File) => {
@@ -481,31 +575,36 @@ export default function App() {
     }
   };
 
-  const prepareBatchExportCard = async (card: CardData) => {
+  const prepareBatchExportCard = async (card: CardData, exportAssets: AssetLibrary) => {
     flushSync(() => {
       setSingleExportWidth(CARD_WIDTH);
       setBatchExportCard(cloneCardData(card));
+      setBatchExportAssets(deepClone(exportAssets));
     });
     await waitForRenderCycle();
-    return batchExportRef.current;
+    const container = batchExportRef.current;
+    if (container) {
+      await waitForExportReady(container);
+    }
+    return container;
   };
 
-  const handleExportSingleCard = async (card: CardData, cardId?: string) => {
-    setExportingCardId(cardId || card.serialNumber || card.name || 'card');
+  const handleExportSingleCard = async (saved: SavedCard) => {
+    const card = saved.cardData;
+    setExportingCardId(saved.id);
     try {
-      const exportContainer = await prepareBatchExportCard(card);
+      const exportContainer = await prepareBatchExportCard(card, getCardExportAssets(saved));
 
       if (!exportContainer || !exportContainer.firstElementChild) {
         alert('导出环境未就绪，请重试！');
         return;
       }
 
-      await waitForImages(exportContainer);
       const dataUrl = await toPng(exportContainer, {
         pixelRatio: 3,
         cacheBust: true,
-        width: exportContainer.offsetWidth,
-        height: exportContainer.offsetHeight,
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
         filter: (node: Element) => {
           if (node instanceof HTMLElement && node.className && typeof node.className === 'string' && node.className.includes('z-[100]')) {
             return false;
@@ -520,35 +619,50 @@ export default function App() {
       alert('导出失败：' + (err instanceof Error ? err.message : '可能是存在跨域渲染受限图片'));
     } finally {
       setBatchExportCard(null);
+      setBatchExportAssets(null);
       setExportingCardId(null);
     }
   };
 
   const handleBatchExport = async () => {
-    if (savedCards.length === 0) {
-      alert('您的牌库中无任何卡牌！');
+    const cardsToExport = savedCards.filter(card => (
+      activeGroupId === 'all'
+        ? true
+        : activeGroupId === 'ungrouped'
+          ? !card.groupId
+          : card.groupId === activeGroupId
+    ));
+    const exportGroupName = activeGroupId === 'all'
+      ? '全部卡牌'
+      : activeGroupId === 'ungrouped'
+        ? '未分组'
+        : libraryGroups.find(group => group.id === activeGroupId)?.name || '当前分组';
+
+    if (cardsToExport.length === 0) {
+      alert('当前分组中无任何可导出的卡牌！');
       return;
     }
 
-    const confirmExport = window.confirm(`准备开始批量导出牌库中的 ${savedCards.length} 张卡牌为高品质PNG。网页将逐一绘制并下载，可能会触发浏览器的多文件下载授权，请点击“允许/同意”。确定开始吗？`);
+    const confirmExport = window.confirm(`准备开始批量导出【${exportGroupName}】中的 ${cardsToExport.length} 张卡牌为高品质PNG。网页将逐一绘制并下载，可能会触发浏览器的多文件下载授权，请点击“允许/同意”。确定开始吗？`);
     if (!confirmExport) return;
 
     setIsExportingBatch(true);
-    setExportProgress({ current: 0, total: savedCards.length });
+    setExportProgress({ current: 0, total: cardsToExport.length });
 
     try {
-      for (let i = 0; i < savedCards.length; i++) {
-        const item = savedCards[i];
-        setExportProgress({ current: i + 1, total: savedCards.length });
+      for (let i = 0; i < cardsToExport.length; i++) {
+        const item = cardsToExport[i];
+        setExportProgress({ current: i + 1, total: cardsToExport.length });
 
-        const exportContainer = await prepareBatchExportCard(item.cardData);
+        const exportContainer = await prepareBatchExportCard(item.cardData, getCardExportAssets(item));
 
         if (!exportContainer || !exportContainer.firstElementChild) continue;
-        await waitForImages(exportContainer);
 
         const dataUrl = await toPng(exportContainer, {
           pixelRatio: 3,
           cacheBust: true,
+          width: CARD_WIDTH,
+          height: CARD_HEIGHT,
           filter: (node: Element) => {
             if (node instanceof HTMLElement && node.className && typeof node.className === 'string' && node.className.includes('z-[100]')) {
               return false;
@@ -568,6 +682,7 @@ export default function App() {
     } finally {
       setIsExportingBatch(false);
       setBatchExportCard(null);
+      setBatchExportAssets(null);
     }
   };
 
@@ -576,7 +691,7 @@ export default function App() {
       alert('您的牌库暂无卡牌数据！');
       return;
     }
-    const blob = new Blob([JSON.stringify(savedCards, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 2, groups: libraryGroups, cards: savedCards }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.download = `spirit_card_deck_${Date.now()}.json`;
@@ -592,31 +707,50 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (Array.isArray(json)) {
-          const normalized = json
+        const rawCards = Array.isArray(json) ? json : (isRecord(json) && Array.isArray(json.cards) ? json.cards : null);
+        if (rawCards) {
+          const normalized = rawCards
             .map(normalizeSavedCard)
             .filter((item): item is SavedCard => Boolean(item))
             .map(item => ({
               ...item,
               id: `${item.id}_${Math.random().toString(36).substring(2, 5)}`,
+              assetsSnapshot: item.assetsSnapshot ? deepClone(item.assetsSnapshot) : undefined,
               cardData: cloneCardData(item.cardData),
             }));
 
-          if (normalized.length !== json.length || normalized.length === 0) {
+          if (normalized.length !== rawCards.length || normalized.length === 0) {
             alert('无效的牌库数据。数据字段格式不正确。');
             return;
           }
 
-          const append = window.confirm(`检测到包含 ${json.length} 张卡牌的文件。点击【确定】将它们【追加】到当前的牌库中；或者点击【取消】将【覆盖并重置】现有牌库。`);
+          const importedGroups = isRecord(json) && Array.isArray(json.groups)
+            ? json.groups
+                .filter(isRecord)
+                .map(group => ({
+                  id: typeof group.id === 'string' ? group.id : '',
+                  name: typeof group.name === 'string' ? group.name.trim() : '',
+                  createdAt: typeof group.createdAt === 'number' ? group.createdAt : Date.now(),
+                }))
+                .filter(group => group.id && group.name)
+            : [];
+
+          const append = window.confirm(`检测到包含 ${rawCards.length} 张卡牌的文件。点击【确定】将它们【追加】到当前的牌库中；或者点击【取消】将【覆盖并重置】现有牌库。`);
 
           if (append) {
             setSavedCards(prev => [...prev, ...normalized]);
+            setLibraryGroups(prev => {
+              const existingNames = new Set(prev.map(group => group.name));
+              return [...prev, ...importedGroups.filter(group => !existingNames.has(group.name))];
+            });
           } else {
             setSavedCards(normalized);
+            setLibraryGroups(importedGroups);
+            setActiveGroupId('all');
           }
-          alert(`成功加载并处理了 ${json.length} 张卡牌！`);
+          alert(`成功加载并处理了 ${rawCards.length} 张卡牌！`);
         } else {
-          alert('数据根节点应该为一个包含卡牌对象的 JSON 数组。');
+          alert('数据根节点应该为一个包含卡牌对象的 JSON 数组，或包含 cards 字段的牌库备份对象。');
         }
       } catch (err) {
         alert('解析文件遇到错误：' + err);
@@ -627,35 +761,49 @@ export default function App() {
   };
 
   const handleBatchImportCards = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
 
     try {
-      const lowerName = file.name.toLowerCase();
-      const text = lowerName.endsWith('.docx')
-        ? await readDocxText(file)
-        : await file.text();
-
       let importedCards: SavedCard[] = [];
+      const failedFiles: string[] = [];
 
-      if (lowerName.endsWith('.json')) {
-        const json = JSON.parse(text);
-        if (Array.isArray(json)) {
-          importedCards = json
-            .map(item => normalizeCardData(isRecord(item) && 'cardData' in item ? item.cardData : item))
-            .filter((item): item is CardData => Boolean(item))
-            .map(makeSavedCard);
-        } else if (isRecord(json) && json.cardData) {
-          const card = normalizeCardData(json.cardData);
-          importedCards = card ? [makeSavedCard(card)] : [];
-        } else {
-          const card = normalizeCardData(json);
-          importedCards = card ? [makeSavedCard(card)] : [];
+      for (const file of files) {
+        try {
+          const lowerName = file.name.toLowerCase();
+          const text = lowerName.endsWith('.docx')
+            ? await readDocxText(file)
+            : await file.text();
+
+          if (lowerName.endsWith('.json')) {
+            const json = JSON.parse(text);
+            if (Array.isArray(json)) {
+              importedCards = [
+                ...importedCards,
+                ...json
+                  .map(item => normalizeCardData(isRecord(item) && 'cardData' in item ? item.cardData : item))
+                  .filter((item): item is CardData => Boolean(item))
+                  .map(card => makeSavedCard(card, assets))
+              ];
+            } else if (isRecord(json) && json.cardData) {
+              const card = normalizeCardData(json.cardData);
+              if (card) importedCards.push(makeSavedCard(card, assets));
+            } else {
+              const card = normalizeCardData(json);
+              if (card) importedCards.push(makeSavedCard(card, assets));
+            }
+          } else {
+            importedCards = [
+              ...importedCards,
+              ...parseImportText(text)
+                .map(fieldsToCardData)
+                .map(card => makeSavedCard(card, assets))
+            ];
+          }
+        } catch (err) {
+          console.error('Failed to import file:', file.name, err);
+          failedFiles.push(file.name);
         }
-      } else {
-        importedCards = parseImportText(text)
-          .map(fieldsToCardData)
-          .map(makeSavedCard);
       }
 
       if (importedCards.length === 0) {
@@ -663,17 +811,23 @@ export default function App() {
         return;
       }
 
-      const append = window.confirm(`识别到 ${importedCards.length} 张卡牌。点击【确定】追加到当前牌库；点击【取消】覆盖当前牌库。`);
+      const targetGroupId = activeGroupId !== 'all' && activeGroupId !== 'ungrouped'
+        ? activeGroupId
+        : undefined;
+      const cardsForLibrary = importedCards.map(card => ({ ...card, groupId: targetGroupId }));
+
+      const failedText = failedFiles.length > 0 ? `\n\n有 ${failedFiles.length} 个文件未能解析：\n${failedFiles.join('\n')}` : '';
+      const append = window.confirm(`从 ${files.length} 个文件中识别到 ${importedCards.length} 张卡牌。点击【确定】追加到当前牌库；点击【取消】覆盖当前牌库。${failedText}`);
       if (append) {
-        setSavedCards(prev => [...importedCards, ...prev]);
+        setSavedCards(prev => [...cardsForLibrary, ...prev]);
       } else {
-        setSavedCards(importedCards);
+        setSavedCards(cardsForLibrary);
       }
 
-      setCardData(cloneCardData(importedCards[0].cardData));
-      setEditingCardId(importedCards[0].id);
+      setCardData(cloneCardData(cardsForLibrary[0].cardData));
+      setEditingCardId(cardsForLibrary[0].id);
       setActiveTab('cards_library');
-      alert(`已成功批量导入 ${importedCards.length} 张卡牌。`);
+      alert(`已成功批量导入 ${importedCards.length} 张卡牌。${failedText}`);
     } catch (err) {
       console.error('Batch import failed:', err);
       alert('批量导入失败：' + err);
@@ -685,8 +839,28 @@ export default function App() {
   const clearLibrary = () => {
     if (window.confirm('您确定要清空当前的全部牌库吗？警告：这会永久擦除浏览器所有的本地牌库历史！')) {
       setSavedCards([]);
+      setLibraryGroups([]);
+      setActiveGroupId('all');
       setEditingCardId(null);
     }
+  };
+
+  const refreshLibraryAssetSnapshots = () => {
+    if (savedCards.length === 0) {
+      alert('牌库中还没有卡牌。');
+      return;
+    }
+
+    if (!window.confirm('确定要把当前素材库写入所有已保存卡牌吗？这会修复旧卡的费用/属性图标快照。')) {
+      return;
+    }
+
+    const nextAssets = makeAssetsSnapshot();
+    setSavedCards(prev => prev.map(item => ({
+      ...item,
+      assetsSnapshot: deepClone(nextAssets),
+    })));
+    alert(`已同步 ${savedCards.length} 张卡牌的素材快照。`);
   };
 
   const insertKeyword = (keyword: string) => {
@@ -764,6 +938,19 @@ export default function App() {
   ));
   const cropXs = Array.from({ length: PRINT_GRID_COLS + 1 }, (_, index) => PRINT_GRID_LEFT + PRINT_CARD_WIDTH * index);
   const cropYs = Array.from({ length: PRINT_GRID_ROWS + 1 }, (_, index) => PRINT_GRID_TOP + PRINT_CARD_HEIGHT * index);
+  const ungroupedCount = savedCards.filter(card => !card.groupId).length;
+  const activeGroupName = activeGroupId === 'all'
+    ? '全部卡牌'
+    : activeGroupId === 'ungrouped'
+      ? '未分组'
+      : libraryGroups.find(group => group.id === activeGroupId)?.name || '全部卡牌';
+  const visibleSavedCards = savedCards.filter(card => (
+    activeGroupId === 'all'
+      ? true
+      : activeGroupId === 'ungrouped'
+        ? !card.groupId
+        : card.groupId === activeGroupId
+  ));
 
   return (
     <div className="light-app min-h-screen flex flex-col bg-neutral-950 text-neutral-200 font-sans">
@@ -773,7 +960,7 @@ export default function App() {
           <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shadow-lg shadow-accent/20">
             <Zap className="w-5 h-5 text-white" />
           </div>
-          <h1 className="font-bold text-lg tracking-tight">域·卡牌生成器 <span className="text-[10px] font-mono opacity-50 ml-2">v1.2</span></h1>
+          <h1 className="font-bold text-lg tracking-tight">域·卡牌生成器 <span className="text-[10px] font-mono opacity-50 ml-2">v1.3</span></h1>
         </div>
         <div className="flex items-center gap-2">
           {editingCardId && (
@@ -822,6 +1009,8 @@ export default function App() {
                   const newCard: SavedCard = {
                     id: 'card_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 5),
                     createdAt: Date.now(),
+                    groupId: activeGroupId !== 'all' && activeGroupId !== 'ungrouped' ? activeGroupId : undefined,
+                    assetsSnapshot: makeAssetsSnapshot(),
                     cardData: cloneCardData(cardData)
                   };
                   setSavedCards(prev => [newCard, ...prev]);
@@ -1088,51 +1277,8 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden">
         {/* Left: Preview */}
         <section className="w-1/2 flex items-center justify-center p-12 bg-neutral-950 relative overflow-y-auto custom-scrollbar">
-          {/* Zoom Controls Overlay */}
-          <div className="absolute top-6 left-6 z-20 flex items-center gap-2 bg-neutral-900/80 backdrop-blur-md border border-white/10 rounded-full px-3 py-1.5 shadow-xl">
-            <button 
-              onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.1))}
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-neutral-400 hover:text-white"
-              title="缩小"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <input 
-              type="range" 
-              min="0.5" 
-              max="5.0" 
-              step="0.1" 
-              value={zoomLevel}
-              onChange={(e) => setZoomLevel(parseFloat(e.target.value))}
-              className="w-24 accent-accent"
-            />
-            <button 
-              onClick={() => setZoomLevel(Math.min(5.0, zoomLevel + 0.1))}
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-neutral-400 hover:text-white"
-              title="放大"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            <div className="h-4 w-px bg-white/10 mx-1" />
-            <button 
-              onClick={() => setZoomLevel(2.6)}
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-neutral-400 hover:text-white"
-              title="重置缩放"
-            >
-              <Maximize className="w-4 h-4" />
-            </button>
-            <span className="text-[10px] font-mono font-bold text-neutral-500 min-w-[40px] text-center">
-              {Math.round(zoomLevel * 100)}%
-            </span>
-          </div>
-
-          <div className="sticky top-12 py-10">
-            <div className="transition-transform duration-300 ease-out" style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}>
-              <CardPreview ref={previewRef} data={cardData} assets={assets} showGrid={showGrid} onImageAdjust={handleImageAdjust} />
-            </div>
-            <p className="mt-20 text-center text-xs text-neutral-500 font-mono opacity-50">
-              5.9cm x 8.6cm • HIGH RESOLUTION (2X)
-            </p>
+          <div className="sticky top-12 py-10 w-[380px] max-w-full">
+            <CardPreview ref={previewRef} data={cardData} assets={assets} showGrid={showGrid} onImageAdjust={handleImageAdjust} />
           </div>
         </section>
 
@@ -1194,7 +1340,9 @@ export default function App() {
                 <div className="flex items-center justify-between p-4 bg-neutral-950/40 border border-white/5 rounded-xl">
                   <div>
                     <h3 className="text-white font-bold text-xs">卡牌库数据</h3>
-                    <p className="text-[10px] text-neutral-500 mt-1">本地共存储了 {savedCards.length} 张卡牌</p>
+                    <p className="text-[10px] text-neutral-500 mt-1">
+                      本地共存储了 {savedCards.length} 张卡牌，当前显示 {activeGroupName} · {visibleSavedCards.length} 张
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1.5">
                     {/* Bulk Export Button */}
@@ -1219,7 +1367,7 @@ export default function App() {
                     >
                       <FileText className="w-3 h-3" />
                       Word导入
-                      <input type="file" accept=".docx,.txt,.md,.json" onChange={handleBatchImportCards} className="hidden" />
+                      <input type="file" accept=".docx,.txt,.md,.json" multiple onChange={handleBatchImportCards} className="hidden" />
                     </label>
 
                     {/* JSON Import button */}
@@ -1239,6 +1387,15 @@ export default function App() {
                       备份JSON
                     </button>
 
+                    <button
+                      onClick={refreshLibraryAssetSnapshots}
+                      className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-neutral-800 border border-white/10 hover:border-white/20 text-neutral-300 hover:text-white active:scale-95 transition-all"
+                      title="把当前素材库同步到所有已保存卡牌，修复旧卡导出素材"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      同步素材
+                    </button>
+
                     {/* Clear Library button */}
                     <button 
                       onClick={clearLibrary}
@@ -1247,6 +1404,75 @@ export default function App() {
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-neutral-950/30 border border-white/5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-white font-bold text-xs">牌库分组</h3>
+                      <p className="text-[10px] text-neutral-500 mt-1">按系列、卡组或测试批次整理本地牌库</p>
+                    </div>
+                    <button
+                      onClick={createLibraryGroup}
+                      className="flex items-center gap-1.5 rounded-lg bg-neutral-800 border border-white/10 px-2.5 py-1.5 text-[11px] font-bold text-neutral-200 hover:border-accent hover:text-accent transition-all"
+                    >
+                      <Plus className="w-3 h-3" />
+                      新建分组
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setActiveGroupId('all')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all",
+                        activeGroupId === 'all'
+                          ? "bg-accent text-white border-accent"
+                          : "bg-neutral-800 border-white/10 text-neutral-400 hover:text-white"
+                      )}
+                    >
+                      全部 <span className="opacity-70">{savedCards.length}</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveGroupId('ungrouped')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all",
+                        activeGroupId === 'ungrouped'
+                          ? "bg-accent text-white border-accent"
+                          : "bg-neutral-800 border-white/10 text-neutral-400 hover:text-white"
+                      )}
+                    >
+                      未分组 <span className="opacity-70">{ungroupedCount}</span>
+                    </button>
+                    {libraryGroups.map(group => {
+                      const count = savedCards.filter(card => card.groupId === group.id).length;
+                      return (
+                        <div
+                          key={group.id}
+                          className={cn(
+                            "group flex items-center rounded-lg border transition-all overflow-hidden",
+                            activeGroupId === group.id
+                              ? "bg-accent text-white border-accent"
+                              : "bg-neutral-800 border-white/10 text-neutral-400 hover:text-white"
+                          )}
+                        >
+                          <button
+                            onClick={() => setActiveGroupId(group.id)}
+                            className="px-3 py-1.5 text-[11px] font-bold"
+                          >
+                            {group.name} <span className="opacity-70">{count}</span>
+                          </button>
+                          <button
+                            onClick={() => deleteLibraryGroup(group.id, group.name)}
+                            className="px-1.5 py-1.5 opacity-60 hover:opacity-100 hover:bg-red-500/20"
+                            title="删除分组"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1277,9 +1503,19 @@ export default function App() {
                       先在「卡牌编辑器」中设计卡牌，然后点击顶部的 <strong className="text-emerald-500">添加至牌库</strong> 按钮保存您的杰作吧！
                     </p>
                   </div>
+                ) : visibleSavedCards.length === 0 ? (
+                  <div className="text-center py-14 px-6 border border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center bg-neutral-950/10">
+                    <div className="w-12 h-12 bg-neutral-800/50 rounded-full flex items-center justify-center mb-4 text-neutral-500">
+                      <Library className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-neutral-400">当前分组暂无卡牌</h4>
+                    <p className="text-xs text-neutral-500 mt-2 max-w-[320px] leading-relaxed">
+                      可以从其它分组的卡牌右侧下拉菜单移动进来，或在当前分组下新增卡牌。
+                    </p>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-2.5">
-                    {savedCards.map((item) => {
+                    {visibleSavedCards.map((item) => {
                       const typeLabels: Record<string, string> = {
                         master: '星主',
                         spirit_normal: '域灵',
@@ -1362,7 +1598,19 @@ export default function App() {
                           </div>
 
                           {/* Quick Actions Column */}
-                          <div className="flex items-center gap-1 ml-1 shrink-0">
+                          <div className="flex flex-wrap items-center justify-end gap-1 ml-1 shrink-0 max-w-[220px]">
+                            <select
+                              value={item.groupId || 'ungrouped'}
+                              onChange={(event) => updateCardGroup(item.id, event.target.value)}
+                              className="max-w-[90px] h-8 rounded-lg bg-neutral-800 border border-white/10 px-2 text-[10px] font-bold text-neutral-300 outline-none hover:border-accent focus:border-accent"
+                              title="移动到分组"
+                            >
+                              <option value="ungrouped">未分组</option>
+                              {libraryGroups.map(group => (
+                                <option key={group.id} value={group.id}>{group.name}</option>
+                              ))}
+                            </select>
+
                             {/* Load / Edit */}
                             <button 
                               onClick={() => loadCardFromLibrary(item)}
@@ -1383,7 +1631,7 @@ export default function App() {
 
                             {/* Export PNG */}
                             <button 
-                              onClick={() => handleExportSingleCard(item.cardData, item.id)}
+                              onClick={() => handleExportSingleCard(item)}
                               disabled={exportingCardId === item.id}
                               className={cn(
                                 "flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent hover:text-white transition disabled:opacity-60 disabled:cursor-wait text-[11px] font-bold",
@@ -1861,7 +2109,7 @@ export default function App() {
       >
         <div ref={batchExportRef} style={{ width: `${singleExportWidth}px`, height: `${Math.round(singleExportWidth * 86 / 59)}px`, transform: 'none', transition: 'none', position: 'relative' }}>
           {batchExportCard && (
-            <CardPreview data={batchExportCard} assets={assets} showGrid={false} />
+            <CardPreview data={batchExportCard} assets={batchExportAssets || assets} showGrid={false} forExport exportWidth={singleExportWidth} />
           )}
         </div>
       </div>
