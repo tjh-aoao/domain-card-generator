@@ -43,6 +43,23 @@ type AppTab = 'editor' | 'library' | 'cards_library' | 'print_workspace';
 
 type PrintImageFit = 'cover' | 'contain';
 
+interface WritableDirectoryHandle {
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<WritableFileHandle>;
+}
+
+interface WritableFileHandle {
+  createWritable(): Promise<WritableFileStream>;
+}
+
+interface WritableFileStream {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+}
+
+type DirectoryPickerWindow = Window & typeof globalThis & {
+  showDirectoryPicker?: () => Promise<WritableDirectoryHandle>;
+};
+
 interface PrintImageItem {
   id: string;
   name: string;
@@ -191,15 +208,31 @@ export default function App() {
   const exportRef = useRef<HTMLDivElement>(null);
   const batchExportRef = useRef<HTMLDivElement>(null);
   const printPagesRef = useRef<HTMLDivElement>(null);
+  const storageWarningShownRef = useRef(false);
+
+  const safeWriteLocalStorage = useCallback((key: string, value: unknown, label: string) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      storageWarningShownRef.current = false;
+      return true;
+    } catch (error) {
+      console.error(`Failed to save ${label} to localStorage`, error);
+      if (!storageWarningShownRef.current) {
+        storageWarningShownRef.current = true;
+        alert(`${label}保存失败，可能是 Chrome 本地存储空间已满。页面不会再白屏，但这次修改可能无法持久保存。建议先在“我的牌库”备份 JSON，再清理浏览器站点数据或减少素材快照体积。`);
+      }
+      return false;
+    }
+  }, []);
 
   // Sync saved cards to localStorage
   useEffect(() => {
-    localStorage.setItem('spirit_card_library', JSON.stringify(savedCards));
-  }, [savedCards]);
+    safeWriteLocalStorage('spirit_card_library', savedCards, '牌库数据');
+  }, [safeWriteLocalStorage, savedCards]);
 
   useEffect(() => {
-    localStorage.setItem('spirit_card_library_groups', JSON.stringify(libraryGroups));
-  }, [libraryGroups]);
+    safeWriteLocalStorage('spirit_card_library_groups', libraryGroups, '牌库分组');
+  }, [safeWriteLocalStorage, libraryGroups]);
 
   const updateField = (path: string, value: any) => {
     const keys = path.split('.');
@@ -228,7 +261,11 @@ export default function App() {
   const makeAssetsSnapshot = () => deepClone(assets);
 
   const getCardExportAssets = (saved: SavedCard) => {
-    return saved.assetsSnapshot ? deepClone(saved.assetsSnapshot) : makeAssetsSnapshot();
+    const snapshot = saved.assetsSnapshot ? normalizeAssetLibrary(saved.assetsSnapshot) : makeAssetsSnapshot();
+    return {
+      ...snapshot,
+      templates: deepClone(assets.templates),
+    };
   };
 
   const handleImageAdjust = (scale: number, offset: { x: number, y: number }) => {
@@ -236,6 +273,15 @@ export default function App() {
       ...prev,
       imageScale: scale,
       imageOffset: offset
+    }));
+  };
+
+  const handleImageChange = (image: string) => {
+    setCardData(prev => ({
+      ...prev,
+      image,
+      imageScale: 1,
+      imageOffset: { x: 0, y: 0 }
     }));
   };
 
@@ -254,6 +300,45 @@ export default function App() {
     window.setTimeout(() => {
       link.remove();
     }, 0);
+  };
+
+  const canChooseExportDirectory = () => {
+    return typeof (window as DirectoryPickerWindow).showDirectoryPicker === 'function';
+  };
+
+  const pickExportDirectory = async () => {
+    const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
+    return picker ? picker() : null;
+  };
+
+  const dataUrlToBlob = async (dataUrl: string) => {
+    const response = await fetch(dataUrl);
+    return response.blob();
+  };
+
+  const writeDataUrlToDirectory = async (directoryHandle: WritableDirectoryHandle, fileName: string, dataUrl: string) => {
+    const blob = await dataUrlToBlob(dataUrl);
+    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+  };
+
+  const makeUniqueBatchFileName = (rawFileName: string, usedNames: Set<string>) => {
+    const safeName = rawFileName || 'card.png';
+    const dotIndex = safeName.lastIndexOf('.');
+    const baseName = dotIndex > 0 ? safeName.slice(0, dotIndex) : safeName;
+    const extension = dotIndex > 0 ? safeName.slice(dotIndex) : '.png';
+    let nextName = `${baseName}${extension}`;
+    let index = 2;
+
+    while (usedNames.has(nextName.toLowerCase())) {
+      nextName = `${baseName}_${index}${extension}`;
+      index += 1;
+    }
+
+    usedNames.add(nextName.toLowerCase());
+    return nextName;
   };
 
   const getPreviewBaseWidth = () => {
@@ -643,11 +728,31 @@ export default function App() {
       return;
     }
 
-    const confirmExport = window.confirm(`准备开始批量导出【${exportGroupName}】中的 ${cardsToExport.length} 张卡牌为高品质PNG。网页将逐一绘制并下载，可能会触发浏览器的多文件下载授权，请点击“允许/同意”。确定开始吗？`);
+    const supportsDirectoryExport = canChooseExportDirectory();
+    const confirmExport = window.confirm(
+      supportsDirectoryExport
+        ? `准备开始批量导出【${exportGroupName}】中的 ${cardsToExport.length} 张卡牌为高品质PNG。接下来请选择保存文件夹，文件会直接写入该文件夹。确定开始吗？`
+        : `准备开始批量导出【${exportGroupName}】中的 ${cardsToExport.length} 张卡牌为高品质PNG。当前浏览器不支持选择文件夹保存，将逐一触发下载，可能需要允许多文件下载。确定开始吗？`
+    );
     if (!confirmExport) return;
+
+    let directoryHandle: WritableDirectoryHandle | null = null;
+    if (supportsDirectoryExport) {
+      try {
+        directoryHandle = await pickExportDirectory();
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        console.error('Directory picker failed:', err);
+        alert('选择保存文件夹失败，将取消本次批量导出。');
+        return;
+      }
+    }
 
     setIsExportingBatch(true);
     setExportProgress({ current: 0, total: cardsToExport.length });
+    const usedFileNames = new Set<string>();
 
     try {
       for (let i = 0; i < cardsToExport.length; i++) {
@@ -671,14 +776,23 @@ export default function App() {
           },
         });
 
-        triggerDownload(dataUrl, `${sanitizeFileName(item.cardData.name)}_${sanitizeFileName(item.cardData.serialNumber || 'un')}.png`);
+        const fileName = makeUniqueBatchFileName(
+          `${sanitizeFileName(item.cardData.name)}_${sanitizeFileName(item.cardData.serialNumber || 'un')}.png`,
+          usedFileNames
+        );
 
-        await new Promise(resolve => setTimeout(resolve, 200));
+        if (directoryHandle) {
+          await writeDataUrlToDirectory(directoryHandle, fileName, dataUrl);
+        } else {
+          triggerDownload(dataUrl, fileName);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, directoryHandle ? 50 : 200));
       }
-      alert('所有卡牌已生成渲染任务！请检查浏览器的下载纪录。');
+      alert(directoryHandle ? '所有卡牌已保存到所选文件夹。' : '所有卡牌已生成渲染任务！请检查浏览器的下载纪录。');
     } catch (err) {
       console.error('Batch export failed:', err);
-      alert('批量导出发生错误，可能因为某些插画源无法跨域：' + err);
+      alert('批量导出发生错误，可能因为某些插画源无法跨域或文件夹写入失败：' + err);
     } finally {
       setIsExportingBatch(false);
       setBatchExportCard(null);
@@ -1750,7 +1864,7 @@ export default function App() {
                   <ImageInput 
                     label="插画 (Card Art)" 
                     value={cardData.image}
-                    onChange={(val) => updateField('image', val)}
+                    onChange={handleImageChange}
                   />
                 </div>
 

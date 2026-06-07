@@ -28,6 +28,8 @@ const MatrixDisplay = ({ matrix, size = 'small' }: { matrix: number[], size?: 's
   );
 };
 
+const toDisplaySlash = (value?: string) => (value ?? '').replace(/\//g, '／');
+
 export const CardPreview = React.forwardRef<HTMLDivElement, {
   data: CardData,
   assets: AssetLibrary,
@@ -139,6 +141,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
   }, [data.image, data.imageScale, data.imageOffset]);
 
   const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     const nextScale = Math.max(0.1, Math.min(10, illustrationScale + delta));
     setIllustrationScale(nextScale);
@@ -211,9 +214,10 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
           <img
             src={getProxiedUrl(data.image)}
             alt={data.name}
-            className="w-full h-full object-cover pointer-events-none select-none"
+            className="w-full h-full object-contain pointer-events-none select-none"
             style={{
               transform: `translate(${illustrationOffset.x}px, ${illustrationOffset.y}px) scale(${illustrationScale})`,
+              transformOrigin: 'center',
               transition: isDragging ? 'none' : 'transform 0.1s ease-out'
             }}
             referrerPolicy="no-referrer"
@@ -250,20 +254,31 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         </div>
       </div>
 
-      <div className="absolute top-[66.8%] left-[4%] right-[7%] h-[4%] flex items-center justify-between z-10 whitespace-nowrap">
+      <div className="absolute top-[66.8%] left-[4%] right-[34%] h-[4%] flex items-center z-10 whitespace-nowrap">
         <div className="text-[15px] font-medium text-neutral-900 text-left tracking-[-0.08em] leading-none whitespace-nowrap">
-          {data.cardType === 'master' && <span>【域主 / {data.master?.state ?? ''}】</span>}
+          {data.cardType === 'master' && <span>【域主／{toDisplaySlash(data.master?.state)}】</span>}
           {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-            <span>【{data.spirit?.race ?? ''} / {data.spirit?.trait ?? ''}】</span>
+            <span>【{toDisplaySlash(data.spirit?.race)}／{toDisplaySlash(data.spirit?.trait)}】</span>
           )}
-          {data.cardType === 'trace' && <span>【痕迹 / {data.trace?.traceType ?? ''}】</span>}
+          {data.cardType === 'trace' && <span>【痕迹／{toDisplaySlash(data.trace?.traceType)}】</span>}
         </div>
-        {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-          <div className="text-[15px] font-medium text-neutral-900 text-right tracking-[-0.08em] leading-none whitespace-nowrap">
-            ZP: {data.spirit?.domainValue ?? 0} / ATK: {data.spirit?.attack ?? 0}
-          </div>
-        )}
       </div>
+
+      {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
+        <div className="absolute top-[91.2%] left-[5%] right-[7%] h-[3.5%] flex items-center justify-center z-10 whitespace-nowrap">
+          <div
+            className="flex items-center justify-center gap-[4px] text-[15px] font-bold text-neutral-900 tracking-[-0.08em] leading-none whitespace-nowrap"
+            style={{ textShadow: '0 0 2px rgba(255,255,255,0.9), 0 1px 1px rgba(255,255,255,0.65)' }}
+          >
+            <div className="w-[54px] text-center">
+              ZP/{data.spirit?.domainValue ?? 0}
+            </div>
+            <div className="w-[64px] text-center">
+              ATK/{data.spirit?.attack ?? 0}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div
         className="absolute top-[72%] left-[6%] right-[34%] bottom-[9%] py-0.5 text-neutral-900 font-medium overflow-hidden z-10 break-words whitespace-pre-wrap [word-break:normal] [overflow-wrap:break-word] [text-justify:inter-character] [text-wrap:pretty]"
@@ -302,8 +317,8 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         )}
       </div>
 
-      <div className="absolute bottom-[1.5%] left-[6%] right-[6%] h-[3%] flex items-center justify-end z-10">
-        <div className="text-[10px] text-neutral-900 opacity-70">
+      <div className="absolute bottom-[1%] left-[6%] right-[6%] h-[3%] flex items-center justify-end z-10">
+        <div className="text-[12px] text-neutral-900 opacity-70">
           {data.serialNumber}
         </div>
       </div>
