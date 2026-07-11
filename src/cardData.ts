@@ -3,6 +3,17 @@ import { AssetLibrary, CardData, CardType, INITIAL_ASSETS, INITIAL_CARD_DATA, Sa
 const CARD_TYPES: CardType[] = ['master', 'spirit_normal', 'spirit_resonance', 'trace'];
 const OLD_TRACE_TEMPLATE_URL = 'https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260323/M2Zy/2787X4063/%E7%97%95%E8%BF%B9%E5%BA%95%E5%9B%BE.png';
 
+function isKnownNormalSpiritTemplate(value: string) {
+  if (!value) return false;
+  if (value === INITIAL_ASSETS.templates.spirit_normal) return true;
+
+  try {
+    return decodeURIComponent(value).includes('普通域灵底图');
+  } catch {
+    return value.includes('%E6%99%AE%E9%80%9A%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE');
+  }
+}
+
 export function deepClone<T>(value: T): T {
   return typeof structuredClone === 'function'
     ? structuredClone(value)
@@ -126,6 +137,13 @@ export function normalizeAssetLibrary(value: unknown): AssetLibrary {
 
   if (assets.templates.trace === OLD_TRACE_TEMPLATE_URL) {
     assets.templates.trace = INITIAL_ASSETS.templates.trace;
+  }
+
+  if (
+    assets.templates.spirit_resonance === assets.templates.spirit_normal ||
+    isKnownNormalSpiritTemplate(assets.templates.spirit_resonance)
+  ) {
+    assets.templates.spirit_resonance = INITIAL_ASSETS.templates.spirit_resonance;
   }
 
   return assets;

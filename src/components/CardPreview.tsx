@@ -2,28 +2,63 @@ import React, { useEffect, useState } from 'react';
 import { CARD_HEIGHT, CARD_WIDTH, getMatrixLabel } from '../cardLayout';
 import { cn } from '../cn';
 import { getProxiedUrl } from '../imageProxy';
-import { AssetLibrary, CardData } from '../types';
+import { AssetLibrary, CardData, INITIAL_ASSETS } from '../types';
 
-const MatrixDisplay = ({ matrix, size = 'small' }: { matrix: number[], size?: 'small' | 'large' }) => {
+const isKnownNormalSpiritTemplate = (value: string) => {
+  if (!value) return false;
+  if (value === INITIAL_ASSETS.templates.spirit_normal) return true;
+
+  try {
+    const decoded = decodeURIComponent(value);
+    return decoded.includes('普通域灵底图');
+  } catch {
+    return value.includes('%E6%99%AE%E9%80%9A%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE');
+  }
+};
+
+const isNormalSpiritTemplateUrl = (value: string) => {
+  if (!value) return false;
+  if (value === INITIAL_ASSETS.templates.spirit_normal) return true;
+  if (value.includes('%E6%99%AE%E9%80%9A%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE')) return true;
+
+  try {
+    return decodeURIComponent(value).includes('\u666e\u901a\u57df\u7075\u5e95\u56fe');
+  } catch {
+    return false;
+  }
+};
+
+const MatrixDisplay = ({
+  matrix,
+  size = 'small',
+  opaqueBackground = false,
+}: {
+  matrix: number[],
+  size?: 'small' | 'large',
+  opaqueBackground?: boolean,
+}) => {
   const cellSize = size === 'small' ? 'w-2.5 h-2.5' : 'w-10 h-10';
   const fontSize = size === 'small' ? 'text-[5.5px]' : 'text-[10px]';
   const cells = Array.isArray(matrix) ? matrix : Array(16).fill(0);
   return (
-    <div className={cn('matrix-grid bg-black/20 p-0.5 rounded-sm', size === 'large' ? 'gap-1' : 'gap-0.5')}>
-      {cells.map((val, i) => (
-        <div
-          key={i}
-          className={cn(
-            cellSize,
-            'rounded-full transition-colors flex items-center justify-center border border-white/5',
-            val === 0 ? 'bg-white/10' : 'bg-red-600 shadow-[0_0_4px_rgba(220,38,38,0.8)]'
-          )}
-        >
-          <span className={cn(fontSize, val === 0 ? 'text-white/30' : 'text-white font-black')}>
-            {getMatrixLabel(i)}
-          </span>
-        </div>
-      ))}
+    <div className={cn('matrix-grid p-0.5 rounded-sm', opaqueBackground ? 'bg-[#e3dac7]' : 'bg-black/20', size === 'large' ? 'gap-1' : 'gap-0.5')}>
+      {cells.map((val, i) => {
+        const isActive = val === 1;
+        return (
+          <div
+            key={i}
+            className={cn(
+              cellSize,
+              'rounded-full flex items-center justify-center border border-white/5',
+              isActive ? 'bg-red-600' : 'bg-white/10'
+            )}
+          >
+            <span className={cn(fontSize, isActive ? 'text-white font-black' : 'text-white/30')}>
+              {getMatrixLabel(i)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -121,7 +156,11 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
     ));
   };
 
-  const templateImg = assets.templates[data.cardType];
+  const rawTemplateImg = assets.templates[data.cardType];
+  const templateImg =
+    data.cardType === 'spirit_resonance' && isNormalSpiritTemplateUrl(rawTemplateImg)
+      ? INITIAL_ASSETS.templates.spirit_resonance
+      : rawTemplateImg;
   const displayedAttribute = data.cardType === 'trace' ? '痕迹' : data.attribute;
   const attrIcon = assets.attributes[displayedAttribute] || assets.attributes[data.attribute];
   const isSpiritCard = data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance';
@@ -231,7 +270,13 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       </div>
 
       <div className="absolute top-[1.2%] left-[5%] right-[4%] h-[5.5%] flex items-center justify-between z-10">
-        <h2 className="text-[20px] font-black tracking-tighter text-neutral-900 drop-shadow-sm truncate max-w-[65%] leading-[1.15] py-0.5">
+        <h2
+          className={cn(
+            "text-[20px] font-black tracking-tighter drop-shadow-sm truncate max-w-[65%] leading-[1.15] py-0.5",
+            data.cardType === 'trace' ? 'text-white' : 'text-neutral-900'
+          )}
+          style={data.cardType === 'trace' ? { textShadow: '0 1px 2px rgba(0,0,0,0.75)' } : undefined}
+        >
           {data.name}
         </h2>
         <div className="flex items-center">
@@ -265,16 +310,19 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       </div>
 
       {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-        <div className="absolute top-[91.2%] left-[5%] right-[7%] h-[3.5%] flex items-center justify-center z-10 whitespace-nowrap">
+        <div className="absolute top-[91.3%] left-[5%] right-[7%] h-[3.5%] flex items-center justify-center z-10 whitespace-nowrap">
           <div
-            className="flex items-center justify-center gap-[4px] text-[15px] font-bold text-neutral-900 tracking-[-0.08em] leading-none whitespace-nowrap"
-            style={{ textShadow: '0 0 2px rgba(255,255,255,0.9), 0 1px 1px rgba(255,255,255,0.65)' }}
+            className="flex items-center justify-center gap-[4px] text-[15px] font-bold text-white tracking-[-0.1em] leading-none whitespace-nowrap"
+            style={{
+              WebkitTextStroke: '0.65px rgba(0,0,0,0.95)',
+              textShadow: '0.65px 0 0 #000, -0.65px 0 0 #000, 0 0.65px 0 #000, 0 -0.65px 0 #000',
+            }}
           >
             <div className="w-[54px] text-center">
-              ZP/{data.spirit?.domainValue ?? 0}
+              ZP /{data.spirit?.domainValue ?? 0}
             </div>
             <div className="w-[64px] text-center">
-              ATK/{data.spirit?.attack ?? 0}
+              ATK /{data.spirit?.attack ?? 0}
             </div>
           </div>
         </div>
@@ -325,7 +373,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
 
       {data.cardType === 'spirit_resonance' && (
         <div className="absolute bottom-[10%] right-[7%] z-20 scale-[1.8] origin-bottom-right">
-          <MatrixDisplay matrix={data.matrix} />
+          <MatrixDisplay matrix={data.matrix} opaqueBackground={forExport} />
         </div>
       )}
 
