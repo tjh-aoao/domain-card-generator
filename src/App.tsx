@@ -86,6 +86,16 @@ const PRINT_CROP_MARK_LENGTH = 48;
 const PRINT_CARDS_PER_PAGE = 9;
 const PRINT_PREVIEW_SCALE = 0.56;
 
+const getMasterSkillEditorText = (master: CardData['master']) => {
+  const activeSkill = master?.activeSkill?.trim() ?? '';
+  const passiveSkill = master?.passiveSkill?.trim() ?? '';
+
+  return [
+    activeSkill ? `【觉醒技能】${activeSkill}` : '',
+    passiveSkill ? `【绝境技能】${passiveSkill}` : '',
+  ].filter(Boolean).join('\n');
+};
+
 interface ImageInputProps {
   key?: React.Key;
   label: string;
@@ -202,6 +212,7 @@ export default function App() {
   const [exportingCardId, setExportingCardId] = useState<string | null>(null);
   const [singleExportWidth, setSingleExportWidth] = useState(CARD_WIDTH);
   const [printImages, setPrintImages] = useState<PrintImageItem[]>([]);
+  const [masterEffectDraft, setMasterEffectDraft] = useState(() => getMasterSkillEditorText(INITIAL_CARD_DATA.master));
 
   const previewRef = useRef<HTMLDivElement>(null);
   const effectTextRef = useRef<HTMLTextAreaElement>(null);
@@ -209,6 +220,12 @@ export default function App() {
   const batchExportRef = useRef<HTMLDivElement>(null);
   const printPagesRef = useRef<HTMLDivElement>(null);
   const storageWarningShownRef = useRef(false);
+
+  useEffect(() => {
+    if (cardData.cardType === 'master') {
+      setMasterEffectDraft(getMasterSkillEditorText(cardData.master));
+    }
+  }, [cardData.cardType, editingCardId]);
 
   const safeWriteLocalStorage = useCallback((key: string, value: unknown, label: string) => {
     try {
@@ -1004,19 +1021,52 @@ export default function App() {
     updateField('matrix', newMatrix);
   };
 
-  const effectTagOptions = cardData.cardType === 'trace'
-    ? ['发动条件', '效果']
-    : SPIRIT_TRAIT_ORDER;
+  const effectTagOptions = cardData.cardType === 'master'
+    ? ['觉醒技能', '绝境技能']
+    : cardData.cardType === 'trace'
+      ? ['发动条件', '效果']
+      : SPIRIT_TRAIT_ORDER;
 
   const getEffectEditorValue = () => {
-    if (cardData.cardType === 'master') return cardData.master?.activeSkill ?? '';
+    if (cardData.cardType === 'master') return masterEffectDraft;
     if (cardData.cardType === 'trace') return cardData.trace?.effectText ?? '';
     return cardData.spirit?.effectText ?? '';
   };
 
+  const updateMasterSkillText = (value: string) => {
+    setMasterEffectDraft(value);
+
+    const matches = [...value.matchAll(/【(觉醒技能|绝境技能)】/g)];
+
+    if (matches.length === 0) {
+      updateField('master.activeSkill', value);
+      updateField('master.passiveSkill', '');
+      return;
+    }
+
+    let activeSkill = '';
+    let passiveSkill = '';
+
+    matches.forEach((match, index) => {
+      const label = match[1];
+      const start = (match.index ?? 0) + match[0].length;
+      const end = index + 1 < matches.length ? matches[index + 1].index ?? value.length : value.length;
+      const content = value.slice(start, end).trim();
+
+      if (label === '觉醒技能') {
+        activeSkill = activeSkill ? `${activeSkill}\n${content}` : content;
+      } else {
+        passiveSkill = passiveSkill ? `${passiveSkill}\n${content}` : content;
+      }
+    });
+
+    updateField('master.activeSkill', activeSkill);
+    updateField('master.passiveSkill', passiveSkill);
+  };
+
   const updateEffectEditorValue = (value: string) => {
     if (cardData.cardType === 'master') {
-      updateField('master.activeSkill', value);
+      updateMasterSkillText(value);
       return;
     }
 
@@ -1640,7 +1690,7 @@ export default function App() {
                         ? '★' 
                         : (item.cardData.cardType.startsWith('spirit') ? `Fee ${item.cardData.spirit.cost}` : `Fee ${item.cardData.trace.cost}`);
                       
-                      const attrName = item.cardData.attribute || '无';
+                      const attrName = item.cardData.cardType === 'master' ? '' : (item.cardData.attribute || '无');
 
                       return (
                         <div 
@@ -1832,24 +1882,26 @@ export default function App() {
                         <option value="trace">痕迹卡 (Trace)</option>
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">属性 (Attribute)</label>
-                      <select 
-                        value={cardData.attribute}
-                        onChange={(e) => updateField('attribute', e.target.value)}
-                        disabled={cardData.cardType === 'trace'}
-                        className={cn(
-                          "w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-accent transition-colors appearance-none",
-                          cardData.cardType === 'trace' && "opacity-50 cursor-not-allowed"
-                        )}
-                      >
-                        {Object.keys(assets.attributes)
-                          .filter(attr => cardData.cardType === 'trace' ? attr === '痕迹' : attr !== '痕迹')
-                          .map(attr => (
-                            <option key={attr} value={attr}>{attr}</option>
-                          ))}
-                      </select>
-                    </div>
+                    {cardData.cardType !== 'master' && (
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">属性 (Attribute)</label>
+                        <select 
+                          value={cardData.attribute}
+                          onChange={(e) => updateField('attribute', e.target.value)}
+                          disabled={cardData.cardType === 'trace'}
+                          className={cn(
+                            "w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-accent transition-colors appearance-none",
+                            cardData.cardType === 'trace' && "opacity-50 cursor-not-allowed"
+                          )}
+                        >
+                          {Object.keys(assets.attributes)
+                            .filter(attr => cardData.cardType === 'trace' ? attr === '痕迹' : attr !== '痕迹')
+                            .map(attr => (
+                              <option key={attr} value={attr}>{attr}</option>
+                            ))}
+                        </select>
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">卡牌编号</label>
                       <input 
@@ -1878,47 +1930,10 @@ export default function App() {
                     transition={{ duration: 0.2 }}
                     className="space-y-8"
                   >
-                    <div className="flex items-center gap-2 text-accent">
-                      <Zap className="w-5 h-5" />
-                      <h3 className="font-bold uppercase tracking-widest text-sm">类型专属字段</h3>
-                    </div>
-
-                    {cardData.cardType === 'master' && (
-                      <div className="grid grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">初始状态</label>
-                          <div className="flex gap-2">
-                            {['未觉醒', '觉醒'].map(s => (
-                              <button 
-                                key={s}
-                                onClick={() => updateField('master.state', s)}
-                                className={cn(
-                                  "flex-1 py-2 rounded-lg border transition-all text-sm font-medium",
-                                  cardData.master.state === s ? "bg-accent border-accent text-white" : "bg-neutral-800 border-white/10 text-neutral-400 hover:border-white/20"
-                                )}
-                              >
-                                {s}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">维持费用</label>
-                          <input 
-                            type="text" 
-                            value={cardData.master.maintenance}
-                            onChange={(e) => updateField('master.maintenance', e.target.value)}
-                            className="w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-accent transition-colors"
-                          />
-                        </div>
-                        <div className="col-span-2 space-y-2">
-                          <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">觉醒条件</label>
-                          <textarea 
-                            value={cardData.master.triggerCondition}
-                            onChange={(e) => updateField('master.triggerCondition', e.target.value)}
-                            className="w-full bg-neutral-800 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-accent transition-colors h-20 resize-none"
-                          />
-                        </div>
+                    {cardData.cardType !== 'master' && (
+                      <div className="flex items-center gap-2 text-accent">
+                        <Zap className="w-5 h-5" />
+                        <h3 className="font-bold uppercase tracking-widest text-sm">类型专属字段</h3>
                       </div>
                     )}
 
@@ -2084,12 +2099,14 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="flex items-center gap-2 text-accent">
                     <Layers className="w-5 h-5" />
-                    <h3 className="font-bold uppercase tracking-widest text-sm">效果与台词</h3>
+                    <h3 className="font-bold uppercase tracking-widest text-sm">
+                      {cardData.cardType === 'master' ? '觉醒技能与绝境技能' : '效果与台词'}
+                    </h3>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
                     {effectTagOptions.map(kw => (
-                      <button 
+                      <button
                         key={kw}
                         onClick={() => insertKeyword(kw)}
                         className="px-3 py-1 bg-neutral-800 border border-white/10 rounded hover:bg-neutral-700 hover:border-accent transition-all text-xs font-bold"
@@ -2102,7 +2119,7 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">效果文本</label>
-                      <textarea 
+                      <textarea
                         ref={effectTextRef}
                         value={getEffectEditorValue()}
                         onKeyDown={handleEffectEditorKeyDown}
@@ -2114,7 +2131,7 @@ export default function App() {
                 </div>
 
                 {/* D. Matrix Editor */}
-                {(cardData.cardType === 'master' || cardData.cardType === 'spirit_resonance') && (
+                {cardData.cardType === 'spirit_resonance' && (
                   <div className="space-y-6 pb-12">
                     <div className="flex items-center gap-2 text-accent">
                       <Grid className="w-5 h-5" />

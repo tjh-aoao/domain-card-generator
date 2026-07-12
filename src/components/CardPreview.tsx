@@ -75,7 +75,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
 }>(({ data, assets, showGrid, forExport, exportWidth = CARD_WIDTH, onImageAdjust }, ref) => {
   const effectText =
     data.cardType === 'master'
-      ? [data.master?.triggerCondition, data.master?.activeSkill, data.master?.passiveSkill].filter(Boolean).join('\n')
+      ? [data.master?.activeSkill, data.master?.passiveSkill].filter(Boolean).join('\n')
       : data.cardType === 'trace'
         ? data.trace?.effectText ?? ''
         : data.spirit?.effectText ?? '';
@@ -168,6 +168,26 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
   const normalizedCostValue = Number.isFinite(costValue) ? Number(costValue) : 0;
   const costIcon = normalizedCostValue ? assets.costs[normalizedCostValue] : undefined;
   const showCost = data.cardType !== 'master';
+  const showAttribute = data.cardType !== 'master';
+  const masterTextStrokeStyle =
+    data.cardType === 'master'
+      ? {
+          WebkitTextStroke: '0.7px rgba(0,0,0,0.95)',
+          textShadow: '0.7px 0 0 #000, -0.7px 0 0 #000, 0 0.7px 0 #000, 0 -0.7px 0 #000',
+        }
+      : undefined;
+  const masterEffectTextStrokeStyle =
+    data.cardType === 'master'
+      ? {
+          WebkitTextStroke: '0px transparent',
+          textShadow:
+            '0.55px 0 0 #000, -0.55px 0 0 #000, 0 0.55px 0 #000, 0 -0.55px 0 #000, 0.4px 0.4px 0 #000, -0.4px 0.4px 0 #000, 0.4px -0.4px 0 #000, -0.4px -0.4px 0 #000',
+        }
+      : undefined;
+  const masterSkillLabelStyle = {
+    WebkitTextStroke: '0px transparent',
+    textShadow: 'none',
+  };
 
   const [illustrationScale, setIllustrationScale] = useState(data.imageScale ?? 1);
   const [illustrationOffset, setIllustrationOffset] = useState(data.imageOffset ?? { x: 0, y: 0 });
@@ -229,7 +249,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       style={forExport ? { width: `${exportWidth}px`, height: `${Math.round(exportWidth * 86 / 59)}px` } : undefined}
       id="card-preview"
     >
-      <div className="absolute inset-0 z-0">
+      <div className="absolute inset-0 z-5 pointer-events-none">
         {templateImg ? (
           <img
             src={getProxiedUrl(templateImg)}
@@ -242,7 +262,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       </div>
 
       <div
-        className="absolute top-[9.3%] left-[4.95%] right-[5.5%] h-[56.5%] overflow-hidden z-1 cursor-move rounded-[4px]"
+        className="absolute top-[8%] left-[3.5%] right-[3.5%] h-[90%] overflow-hidden z-0 cursor-move rounded-[4px]"
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -273,9 +293,15 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         <h2
           className={cn(
             "text-[20px] font-black tracking-tighter drop-shadow-sm truncate max-w-[65%] leading-[1.15] py-0.5",
-            data.cardType === 'trace' ? 'text-white' : 'text-neutral-900'
+            data.cardType === 'trace' || data.cardType === 'master' ? 'text-white' : 'text-neutral-900'
           )}
-          style={data.cardType === 'trace' ? { textShadow: '0 1px 2px rgba(0,0,0,0.75)' } : undefined}
+          style={
+            data.cardType === 'master'
+              ? masterTextStrokeStyle
+              : data.cardType === 'trace'
+                ? { textShadow: '0 1px 2px rgba(0,0,0,0.75)' }
+                : undefined
+          }
         >
           {data.name}
         </h2>
@@ -289,25 +315,28 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
               )}
             </div>
           )}
-          <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden ml-[-2px] z-20">
-            {attrIcon ? (
-              renderAssetIcon(attrIcon, displayedAttribute, `attr-${displayedAttribute}-${attrIcon}`)
-            ) : (
-              <span className="text-[14px] font-black text-neutral-900">{displayedAttribute}</span>
-            )}
-          </div>
+          {showAttribute && (
+            <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden ml-[-2px] z-20">
+              {attrIcon ? (
+                renderAssetIcon(attrIcon, displayedAttribute, `attr-${displayedAttribute}-${attrIcon}`)
+              ) : (
+                <span className="text-[14px] font-black text-neutral-900">{displayedAttribute}</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="absolute top-[66.8%] left-[4%] right-[34%] h-[4%] flex items-center z-10 whitespace-nowrap">
-        <div className="text-[15px] font-medium text-neutral-900 text-left tracking-[-0.08em] leading-none whitespace-nowrap">
-          {data.cardType === 'master' && <span>【域主／{toDisplaySlash(data.master?.state)}】</span>}
-          {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-            <span>【{toDisplaySlash(data.spirit?.race)}／{toDisplaySlash(data.spirit?.trait)}】</span>
-          )}
-          {data.cardType === 'trace' && <span>【痕迹／{toDisplaySlash(data.trace?.traceType)}】</span>}
+      {data.cardType !== 'master' && (
+        <div className="absolute top-[66.8%] left-[4%] right-[34%] h-[4%] flex items-center z-10 whitespace-nowrap">
+          <div className="text-[15px] font-medium text-neutral-900 text-left tracking-[-0.08em] leading-none whitespace-nowrap">
+            {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
+              <span>【{toDisplaySlash(data.spirit?.race)}／{toDisplaySlash(data.spirit?.trait)}】</span>
+            )}
+            {data.cardType === 'trace' && <span>【痕迹／{toDisplaySlash(data.trace?.traceType)}】</span>}
+          </div>
         </div>
-      </div>
+      )}
 
       {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
         <div className="absolute top-[91.3%] left-[5%] right-[7%] h-[3.5%] flex items-center justify-center z-10 whitespace-nowrap">
@@ -329,30 +358,29 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       )}
 
       <div
-        className="absolute top-[72%] left-[6%] right-[34%] bottom-[9%] py-0.5 text-neutral-900 font-medium overflow-hidden z-10 break-words whitespace-pre-wrap [word-break:normal] [overflow-wrap:break-word] [text-justify:inter-character] [text-wrap:pretty]"
+        className={cn(
+          "absolute top-[72%] left-[6%] bottom-[9%] py-0.5 font-medium overflow-hidden z-10 break-words whitespace-pre-wrap [word-break:normal] [overflow-wrap:break-word] [text-justify:inter-character] [text-wrap:pretty]",
+          data.cardType === 'master' ? 'w-[335px]' : 'right-[34%]',
+          data.cardType === 'master' ? 'text-white' : 'text-neutral-900'
+        )}
         style={{
           fontSize: `${effectTypography.fontSize}px`,
           lineHeight: effectTypography.lineHeight,
+          ...(data.cardType === 'master' ? masterEffectTextStrokeStyle : {}),
         }}
       >
         {data.cardType === 'master' && (
           <div className="space-y-1">
-            {data.master?.triggerCondition && (
-              <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0">觉醒条件</span>
-                <span className="flex-1">{data.master.triggerCondition}</span>
-              </div>
-            )}
             {data.master?.activeSkill && (
               <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0">主动</span>
-                <span className="flex-1">{data.master.activeSkill}</span>
+                <span className="bg-white text-neutral-900 px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelStyle}>觉醒技能</span>
+                <span className="flex-1 min-w-0 block text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character]">{data.master.activeSkill}</span>
               </div>
             )}
             {data.master?.passiveSkill && (
               <div className="flex items-start">
-                <span className="bg-neutral-900 text-white px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0">被动</span>
-                <span className="flex-1">{data.master.passiveSkill}</span>
+                <span className="bg-white text-neutral-900 px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelStyle}>绝境技能</span>
+                <span className="flex-1 min-w-0 block text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character]">{data.master.passiveSkill}</span>
               </div>
             )}
           </div>

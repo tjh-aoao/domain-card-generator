@@ -68,9 +68,9 @@ export interface SavedCard {
 
 export const INITIAL_ASSETS: AssetLibrary = {
   templates: {
-    master: "https://picsum.photos/seed/master-bg/400/533",
-    spirit_normal: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260322/cQNk/2787X4063/%E6%99%AE%E9%80%9A%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE.png",
-    spirit_resonance: "https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260323/PQ9C/2787X4063/%E5%85%B1%E9%B8%A3%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE.png",
+    master: "/assets/card-templates/master-template.png",
+    spirit_normal: "/assets/card-templates/spirit-template.png",
+    spirit_resonance: "/assets/card-templates/resonance-template.png",
     trace: "/assets/card-templates/trace-template.png",
   },
   attributes: {
