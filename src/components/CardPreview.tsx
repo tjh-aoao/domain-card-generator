@@ -31,17 +31,15 @@ const isNormalSpiritTemplateUrl = (value: string) => {
 const MatrixDisplay = ({
   matrix,
   size = 'small',
-  opaqueBackground = false,
 }: {
   matrix: number[],
   size?: 'small' | 'large',
-  opaqueBackground?: boolean,
 }) => {
   const cellSize = size === 'small' ? 'w-2.5 h-2.5' : 'w-10 h-10';
   const fontSize = size === 'small' ? 'text-[5.5px]' : 'text-[10px]';
   const cells = Array.isArray(matrix) ? matrix : Array(16).fill(0);
   return (
-    <div className={cn('matrix-grid p-0.5 rounded-sm', opaqueBackground ? 'bg-[#e3dac7]' : 'bg-black/20', size === 'large' ? 'gap-1' : 'gap-0.5')}>
+    <div className={cn('matrix-grid p-0.5 rounded-sm bg-black/20', size === 'large' ? 'gap-1' : 'gap-0.5')}>
       {cells.map((val, i) => {
         const isActive = val === 1;
         return (
@@ -75,7 +73,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
 }>(({ data, assets, showGrid, forExport, exportWidth = CARD_WIDTH, onImageAdjust }, ref) => {
   const effectText =
     data.cardType === 'master'
-      ? [data.master?.activeSkill, data.master?.passiveSkill].filter(Boolean).join('\n')
+      ? [data.master?.triggerCondition, data.master?.activeSkill, data.master?.passiveSkill].filter(Boolean).join('\n')
       : data.cardType === 'trace'
         ? data.trace?.effectText ?? ''
         : data.spirit?.effectText ?? '';
@@ -172,8 +170,8 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
   const masterTextStrokeStyle =
     data.cardType === 'master'
       ? {
-          WebkitTextStroke: '0.7px rgba(0,0,0,0.95)',
-          textShadow: '0.7px 0 0 #000, -0.7px 0 0 #000, 0 0.7px 0 #000, 0 -0.7px 0 #000',
+          WebkitTextStroke: '0.9px rgba(0,0,0,0.95)',
+          textShadow: '0.9px 0 0 #000, -0.9px 0 0 #000, 0 0.9px 0 #000, 0 -0.9px 0 #000',
         }
       : undefined;
   const masterEffectTextStrokeStyle =
@@ -371,6 +369,12 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       >
         {data.cardType === 'master' && (
           <div className="space-y-1">
+            {data.master?.triggerCondition && (
+              <div className="flex items-start">
+                <span className="bg-white text-neutral-900 px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelStyle}>觉醒条件</span>
+                <span className="flex-1 min-w-0 block text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character]">{data.master.triggerCondition}</span>
+              </div>
+            )}
             {data.master?.activeSkill && (
               <div className="flex items-start">
                 <span className="bg-white text-neutral-900 px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelStyle}>觉醒技能</span>
@@ -401,7 +405,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
 
       {data.cardType === 'spirit_resonance' && (
         <div className="absolute bottom-[10%] right-[7%] z-20 scale-[1.8] origin-bottom-right">
-          <MatrixDisplay matrix={data.matrix} opaqueBackground={forExport} />
+          <MatrixDisplay matrix={data.matrix} />
         </div>
       )}
 

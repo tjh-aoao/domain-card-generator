@@ -87,10 +87,12 @@ const PRINT_CARDS_PER_PAGE = 9;
 const PRINT_PREVIEW_SCALE = 0.56;
 
 const getMasterSkillEditorText = (master: CardData['master']) => {
+  const triggerCondition = master?.triggerCondition?.trim() ?? '';
   const activeSkill = master?.activeSkill?.trim() ?? '';
   const passiveSkill = master?.passiveSkill?.trim() ?? '';
 
   return [
+    triggerCondition ? `【觉醒条件】${triggerCondition}` : '',
     activeSkill ? `【觉醒技能】${activeSkill}` : '',
     passiveSkill ? `【绝境技能】${passiveSkill}` : '',
   ].filter(Boolean).join('\n');
@@ -1022,7 +1024,7 @@ export default function App() {
   };
 
   const effectTagOptions = cardData.cardType === 'master'
-    ? ['觉醒技能', '绝境技能']
+    ? ['觉醒条件', '觉醒技能', '绝境技能']
     : cardData.cardType === 'trace'
       ? ['发动条件', '效果']
       : SPIRIT_TRAIT_ORDER;
@@ -1036,14 +1038,16 @@ export default function App() {
   const updateMasterSkillText = (value: string) => {
     setMasterEffectDraft(value);
 
-    const matches = [...value.matchAll(/【(觉醒技能|绝境技能)】/g)];
+    const matches = [...value.matchAll(/【(觉醒条件|觉醒技能|绝境技能)】/g)];
 
     if (matches.length === 0) {
+      updateField('master.triggerCondition', '');
       updateField('master.activeSkill', value);
       updateField('master.passiveSkill', '');
       return;
     }
 
+    let triggerCondition = '';
     let activeSkill = '';
     let passiveSkill = '';
 
@@ -1053,13 +1057,16 @@ export default function App() {
       const end = index + 1 < matches.length ? matches[index + 1].index ?? value.length : value.length;
       const content = value.slice(start, end).trim();
 
-      if (label === '觉醒技能') {
+      if (label === '觉醒条件') {
+        triggerCondition = triggerCondition ? `${triggerCondition}\n${content}` : content;
+      } else if (label === '觉醒技能') {
         activeSkill = activeSkill ? `${activeSkill}\n${content}` : content;
       } else {
         passiveSkill = passiveSkill ? `${passiveSkill}\n${content}` : content;
       }
     });
 
+    updateField('master.triggerCondition', triggerCondition);
     updateField('master.activeSkill', activeSkill);
     updateField('master.passiveSkill', passiveSkill);
   };
@@ -1124,7 +1131,7 @@ export default function App() {
           <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shadow-lg shadow-accent/20">
             <Zap className="w-5 h-5 text-white" />
           </div>
-          <h1 className="font-bold text-lg tracking-tight">域·卡牌生成器 <span className="text-[10px] font-mono opacity-50 ml-2">v1.3</span></h1>
+          <h1 className="font-bold text-lg tracking-tight">域·卡牌生成器 <span className="text-[10px] font-mono opacity-50 ml-2">正式版 1.0</span></h1>
         </div>
         <div className="flex items-center gap-2">
           {editingCardId && (
@@ -2100,7 +2107,7 @@ export default function App() {
                   <div className="flex items-center gap-2 text-accent">
                     <Layers className="w-5 h-5" />
                     <h3 className="font-bold uppercase tracking-widest text-sm">
-                      {cardData.cardType === 'master' ? '觉醒技能与绝境技能' : '效果与台词'}
+                      {cardData.cardType === 'master' ? '觉醒条件与技能' : '效果与台词'}
                     </h3>
                   </div>
 
