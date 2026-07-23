@@ -69,8 +69,8 @@ export interface SavedCard {
 export const INITIAL_ASSETS: AssetLibrary = {
   templates: {
     master: "/assets/card-templates/master-template.png",
-    spirit_normal: "/assets/card-templates/spirit-template.png",
-    spirit_resonance: "/assets/card-templates/resonance-template.png",
+    spirit_normal: "/assets/card-templates/spirit-template.png?v=20260723-spirit-base",
+    spirit_resonance: "/assets/card-templates/resonance-template.png?v=20260724-resonance-card2",
     trace: "/assets/card-templates/trace-template.png",
   },
   attributes: {
@@ -98,7 +98,7 @@ export const INITIAL_CARD_DATA: CardData = {
   image: "https://picsum.photos/seed/spirit-art/400/300",
   matrix: Array(16).fill(0),
   attribute: "黑",
-  serialNumber: "AA-001",
+  serialNumber: "ZW/YZ01-MMCL001",
   flavorText: "风吟万境，我行万里，与你共鸣。",
   imageScale: 1,
   imageOffset: { x: 0, y: 0 },

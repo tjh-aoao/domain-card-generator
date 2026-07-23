@@ -3,9 +3,13 @@ import { AssetLibrary, CardData, CardType, INITIAL_ASSETS, INITIAL_CARD_DATA, Sa
 const CARD_TYPES: CardType[] = ['master', 'spirit_normal', 'spirit_resonance', 'trace'];
 const OLD_TRACE_TEMPLATE_URL = 'https://img.51shazhu.com/autoupload/nCMjeHc7Z1JMGTdUwnj-xNiO_OyvX7mIgxFBfDMDErs/20260323/M2Zy/2787X4063/%E7%97%95%E8%BF%B9%E5%BA%95%E5%9B%BE.png';
 
+function stripUrlVersion(value: string) {
+  return value.split(/[?#]/)[0];
+}
+
 function isKnownNormalSpiritTemplate(value: string) {
   if (!value) return false;
-  if (value === INITIAL_ASSETS.templates.spirit_normal) return true;
+  if (stripUrlVersion(value) === stripUrlVersion(INITIAL_ASSETS.templates.spirit_normal)) return true;
 
   try {
     return decodeURIComponent(value).includes('普通域灵底图');

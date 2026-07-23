@@ -4,9 +4,11 @@ import { cn } from '../cn';
 import { getProxiedUrl } from '../imageProxy';
 import { AssetLibrary, CardData, INITIAL_ASSETS } from '../types';
 
+const stripUrlVersion = (value: string) => value.split(/[?#]/)[0];
+
 const isKnownNormalSpiritTemplate = (value: string) => {
   if (!value) return false;
-  if (value === INITIAL_ASSETS.templates.spirit_normal) return true;
+  if (stripUrlVersion(value) === stripUrlVersion(INITIAL_ASSETS.templates.spirit_normal)) return true;
 
   try {
     const decoded = decodeURIComponent(value);
@@ -18,7 +20,7 @@ const isKnownNormalSpiritTemplate = (value: string) => {
 
 const isNormalSpiritTemplateUrl = (value: string) => {
   if (!value) return false;
-  if (value === INITIAL_ASSETS.templates.spirit_normal) return true;
+  if (stripUrlVersion(value) === stripUrlVersion(INITIAL_ASSETS.templates.spirit_normal)) return true;
   if (value.includes('%E6%99%AE%E9%80%9A%E5%9F%9F%E7%81%B5%E5%BA%95%E5%9B%BE')) return true;
 
   try {
@@ -27,6 +29,9 @@ const isNormalSpiritTemplateUrl = (value: string) => {
     return false;
   }
 };
+
+const isKnownResonanceSpiritTemplate = (value: string) =>
+  Boolean(value) && stripUrlVersion(value) === stripUrlVersion(INITIAL_ASSETS.templates.spirit_resonance);
 
 const MatrixDisplay = ({
   matrix,
@@ -156,9 +161,12 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
 
   const rawTemplateImg = assets.templates[data.cardType];
   const templateImg =
-    data.cardType === 'spirit_resonance' && isNormalSpiritTemplateUrl(rawTemplateImg)
-      ? INITIAL_ASSETS.templates.spirit_resonance
-      : rawTemplateImg;
+    data.cardType === 'spirit_normal'
+      ? INITIAL_ASSETS.templates.spirit_normal
+      : data.cardType === 'spirit_resonance' &&
+          (isKnownResonanceSpiritTemplate(rawTemplateImg) || isNormalSpiritTemplateUrl(rawTemplateImg))
+        ? INITIAL_ASSETS.templates.spirit_resonance
+        : rawTemplateImg;
   const displayedAttribute = data.cardType === 'trace' ? '痕迹' : data.attribute;
   const attrIcon = assets.attributes[displayedAttribute] || assets.attributes[data.attribute];
   const isSpiritCard = data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance';
@@ -290,7 +298,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       <div className="absolute top-[1.2%] left-[5%] right-[4%] h-[5.5%] flex items-center justify-between z-10">
         <h2
           className={cn(
-            "text-[20px] font-black tracking-tighter drop-shadow-sm truncate max-w-[65%] leading-[1.15] py-0.5",
+            "text-[23px] font-black tracking-tighter drop-shadow-sm truncate max-w-[65%] leading-[1.15] py-0.5",
             data.cardType === 'trace' || data.cardType === 'master' ? 'text-white' : 'text-neutral-900'
           )}
           style={
@@ -305,7 +313,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         </h2>
         <div className="flex items-center">
           {showCost && (
-            <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden z-10">
+            <div className="w-[32px] h-[32px] flex items-center justify-center overflow-hidden z-10">
               {costIcon ? (
                 renderAssetIcon(costIcon, `cost-${normalizedCostValue}`, `cost-${normalizedCostValue}-${costIcon}`)
               ) : (
@@ -314,7 +322,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
             </div>
           )}
           {showAttribute && (
-            <div className="w-[30px] h-[30px] flex items-center justify-center overflow-hidden ml-[-2px] z-20">
+            <div className="w-[32px] h-[32px] flex items-center justify-center overflow-hidden ml-[-2px] z-20">
               {attrIcon ? (
                 renderAssetIcon(attrIcon, displayedAttribute, `attr-${displayedAttribute}-${attrIcon}`)
               ) : (
@@ -337,21 +345,25 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       )}
 
       {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-        <div className="absolute top-[91.3%] left-[5%] right-[7%] h-[3.5%] flex items-center justify-center z-10 whitespace-nowrap">
-          <div
-            className="flex items-center justify-center gap-[4px] text-[15px] font-bold text-white tracking-[-0.1em] leading-none whitespace-nowrap"
+        <div className="absolute top-[61%] left-[63%] right-[5%] h-[4%] flex items-center justify-between z-10 whitespace-nowrap">
+          <span
+            className="w-[12%] text-center text-[15px] font-bold text-white leading-none"
             style={{
               WebkitTextStroke: '0.65px rgba(0,0,0,0.95)',
               textShadow: '0.65px 0 0 #000, -0.65px 0 0 #000, 0 0.65px 0 #000, 0 -0.65px 0 #000',
             }}
           >
-            <div className="w-[54px] text-center">
-              ZP /{data.spirit?.domainValue ?? 0}
-            </div>
-            <div className="w-[64px] text-center">
-              ATK /{data.spirit?.attack ?? 0}
-            </div>
-          </div>
+            {data.spirit?.domainValue ?? 0}
+          </span>
+          <span
+            className="w-[19%] text-center text-[15px] font-bold text-white leading-none"
+            style={{
+              WebkitTextStroke: '0.65px rgba(0,0,0,0.95)',
+              textShadow: '0.65px 0 0 #000, -0.65px 0 0 #000, 0 0.65px 0 #000, 0 -0.65px 0 #000',
+            }}
+          >
+            {data.spirit?.attack ?? 0}
+          </span>
         </div>
       )}
 
@@ -397,8 +409,8 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         )}
       </div>
 
-      <div className="absolute bottom-[1%] left-[6%] right-[6%] h-[3%] flex items-center justify-end z-10">
-        <div className="text-[12px] text-neutral-900 opacity-70">
+      <div className="absolute bottom-[1%] left-[6%] right-[6%] h-[3%] flex items-center justify-start z-10">
+        <div className="text-[12px] font-medium text-neutral-900 opacity-70">
           {data.serialNumber}
         </div>
       </div>
