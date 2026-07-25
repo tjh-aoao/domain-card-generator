@@ -345,9 +345,9 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       )}
 
       {(data.cardType === 'spirit_normal' || data.cardType === 'spirit_resonance') && (
-        <div className="absolute top-[61%] left-[63%] right-[5%] h-[4%] flex items-center justify-between z-10 whitespace-nowrap">
+        <div className="absolute top-[62%] inset-x-0 h-[4%] z-10 whitespace-nowrap">
           <span
-            className="w-[12%] text-center text-[15px] font-bold text-white leading-none"
+            className="absolute left-[64%] top-[63%] w-[4.5%] -translate-y-1/2 text-center text-[17px] font-bold text-white leading-none"
             style={{
               WebkitTextStroke: '0.65px rgba(0,0,0,0.95)',
               textShadow: '0.65px 0 0 #000, -0.65px 0 0 #000, 0 0.65px 0 #000, 0 -0.65px 0 #000',
@@ -356,7 +356,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
             {data.spirit?.domainValue ?? 0}
           </span>
           <span
-            className="w-[19%] text-center text-[15px] font-bold text-white leading-none"
+            className="absolute right-[9%] top-[63%] w-[7%] -translate-y-1/2 text-center text-[17px] font-bold text-white leading-none"
             style={{
               WebkitTextStroke: '0.65px rgba(0,0,0,0.95)',
               textShadow: '0.65px 0 0 #000, -0.65px 0 0 #000, 0 0.65px 0 #000, 0 -0.65px 0 #000',
