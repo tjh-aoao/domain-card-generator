@@ -68,8 +68,8 @@ export interface SavedCard {
 
 export const INITIAL_ASSETS: AssetLibrary = {
   templates: {
-    master: "/assets/card-templates/master-template.png",
-    spirit_normal: "/assets/card-templates/spirit-template.png?v=20260723-spirit-base",
+    master: "/assets/card-templates/master-template.png?v=20260726-master-base",
+    spirit_normal: "/assets/card-templates/spirit-template.png?v=20260726-spirit-base",
     spirit_resonance: "/assets/card-templates/resonance-template.png?v=20260724-resonance-card2",
     trace: "/assets/card-templates/trace-template.png?v=20260726-trace-base-2",
   },

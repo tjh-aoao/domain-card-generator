@@ -370,7 +370,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       <div
         className={cn(
           "absolute top-[72%] left-[6%] bottom-[9%] py-0.5 font-medium overflow-hidden z-10 break-words whitespace-pre-wrap [word-break:normal] [overflow-wrap:break-word] [text-justify:inter-character] [text-wrap:pretty]",
-          data.cardType === 'master' ? 'w-[335px]' : 'right-[34%]',
+          data.cardType === 'master' ? 'w-[335px]' : data.cardType === 'trace' ? 'w-[333px]' : 'right-[34%]',
           data.cardType === 'master' ? 'text-white' : 'text-neutral-900'
         )}
         style={{
