@@ -79,6 +79,7 @@ export function normalizeCardData(value: unknown): CardData | null {
       state: asString(master.state, base.master.state),
       triggerCondition: asString(master.triggerCondition, base.master.triggerCondition),
       activeSkill: asString(master.activeSkill, base.master.activeSkill),
+      desperateAwakening: asString(master.desperateAwakening, base.master.desperateAwakening),
       passiveSkill: asString(master.passiveSkill, base.master.passiveSkill),
       maintenance: asString(master.maintenance, base.master.maintenance),
     },

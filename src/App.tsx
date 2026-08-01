@@ -89,11 +89,13 @@ const PRINT_PREVIEW_SCALE = 0.56;
 const getMasterSkillEditorText = (master: CardData['master']) => {
   const triggerCondition = master?.triggerCondition?.trim() ?? '';
   const activeSkill = master?.activeSkill?.trim() ?? '';
+  const desperateAwakening = master?.desperateAwakening?.trim() ?? '';
   const passiveSkill = master?.passiveSkill?.trim() ?? '';
 
   return [
-    triggerCondition ? `【觉醒条件】${triggerCondition}` : '',
+    triggerCondition ? `【普通觉醒】${triggerCondition}` : '',
     activeSkill ? `【觉醒技能】${activeSkill}` : '',
+    desperateAwakening ? `【绝境觉醒】${desperateAwakening}` : '',
     passiveSkill ? `【绝境技能】${passiveSkill}` : '',
   ].filter(Boolean).join('\n');
 };
@@ -1024,7 +1026,7 @@ export default function App() {
   };
 
   const effectTagOptions = cardData.cardType === 'master'
-    ? ['觉醒条件', '觉醒技能', '绝境技能']
+    ? ['普通觉醒', '觉醒技能', '绝境觉醒', '绝境技能']
     : cardData.cardType === 'trace'
       ? ['发动条件', '效果']
       : SPIRIT_TRAIT_ORDER;
@@ -1038,17 +1040,19 @@ export default function App() {
   const updateMasterSkillText = (value: string) => {
     setMasterEffectDraft(value);
 
-    const matches = [...value.matchAll(/【(觉醒条件|觉醒技能|绝境技能)】/g)];
+    const matches = [...value.matchAll(/【(普通觉醒|觉醒条件|觉醒技能|绝境觉醒|绝境技能)】/g)];
 
     if (matches.length === 0) {
       updateField('master.triggerCondition', '');
       updateField('master.activeSkill', value);
+      updateField('master.desperateAwakening', '');
       updateField('master.passiveSkill', '');
       return;
     }
 
     let triggerCondition = '';
     let activeSkill = '';
+    let desperateAwakening = '';
     let passiveSkill = '';
 
     matches.forEach((match, index) => {
@@ -1057,10 +1061,12 @@ export default function App() {
       const end = index + 1 < matches.length ? matches[index + 1].index ?? value.length : value.length;
       const content = value.slice(start, end).trim();
 
-      if (label === '觉醒条件') {
+      if (label === '普通觉醒' || label === '觉醒条件') {
         triggerCondition = triggerCondition ? `${triggerCondition}\n${content}` : content;
       } else if (label === '觉醒技能') {
         activeSkill = activeSkill ? `${activeSkill}\n${content}` : content;
+      } else if (label === '绝境觉醒') {
+        desperateAwakening = desperateAwakening ? `${desperateAwakening}\n${content}` : content;
       } else {
         passiveSkill = passiveSkill ? `${passiveSkill}\n${content}` : content;
       }
@@ -1068,6 +1074,7 @@ export default function App() {
 
     updateField('master.triggerCondition', triggerCondition);
     updateField('master.activeSkill', activeSkill);
+    updateField('master.desperateAwakening', desperateAwakening);
     updateField('master.passiveSkill', passiveSkill);
   };
 
@@ -2011,7 +2018,7 @@ export default function App() {
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">特性标记 (多选)</label>
                               <div className="flex flex-wrap gap-2">
-                                {['限制', '登场', '共鸣', '战斗', '吟唱', '遗言'].map(t => {
+                                {SPIRIT_TRAIT_ORDER.map(t => {
                                   const traits = cardData.spirit.trait.split('/').filter(Boolean);
                                   const isActive = traits.includes(t);
                                   return (
@@ -2023,7 +2030,7 @@ export default function App() {
                                           newTraits = traits.filter(x => x !== t);
                                         } else {
                                           // Keep the order consistent with the defined list
-                                          const order = ['限制', '登场', '共鸣', '战斗', '吟唱', '遗言'];
+                                          const order = SPIRIT_TRAIT_ORDER;
                                           const currentSet = new Set([...traits, t]);
                                           newTraits = order.filter(item => currentSet.has(item));
                                         }
@@ -2107,7 +2114,7 @@ export default function App() {
                   <div className="flex items-center gap-2 text-accent">
                     <Layers className="w-5 h-5" />
                     <h3 className="font-bold uppercase tracking-widest text-sm">
-                      {cardData.cardType === 'master' ? '觉醒条件与技能' : '效果与台词'}
+                      {cardData.cardType === 'master' ? '觉醒与技能' : '效果与台词'}
                     </h3>
                   </div>
 

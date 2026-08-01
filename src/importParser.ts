@@ -33,7 +33,7 @@ const FIELD_ALIASES: Array<[string, string[]]> = [
   ['trace.effectText', ['traceEffect', '痕迹效果', '效果', '效果文本']],
 ];
 
-export const SPIRIT_TRAIT_ORDER = ['限制', '登场', '共鸣', '战斗', '吟唱', '遗言'];
+export const SPIRIT_TRAIT_ORDER = ['无效果', '登场', '共鸣', '战斗', '吟唱', '遗言'];
 
 const EFFECT_TAGS = [...SPIRIT_TRAIT_ORDER, '普通', '结界', '痕迹', '退场', '领域', '发动条件', '效果'];
 const MATRIX_LABELS = [-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8];

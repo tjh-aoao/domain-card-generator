@@ -42,7 +42,7 @@ if not exist "node_modules" (
 )
 
 echo Starting local server...
-start "Domain Card Generator Server" cmd /k "cd /d ""%~dp0"" && set PORT=3001 && npm.cmd run dev"
+start "Domain Card Generator Server" /D "%~dp0" cmd /k "set PORT=3001&& npm.cmd run dev"
 
 echo Waiting for %APP_URL% ...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$deadline = (Get-Date).AddSeconds(45); do { try { Invoke-WebRequest -Uri '%APP_URL%' -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { Start-Sleep -Milliseconds 500 } } while ((Get-Date) -lt $deadline); exit 1"

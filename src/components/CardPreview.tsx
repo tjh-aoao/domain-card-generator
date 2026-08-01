@@ -78,17 +78,21 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
 }>(({ data, assets, showGrid, forExport, exportWidth = CARD_WIDTH, onImageAdjust }, ref) => {
   const effectText =
     data.cardType === 'master'
-      ? [data.master?.triggerCondition, data.master?.activeSkill, data.master?.passiveSkill].filter(Boolean).join('\n')
+      ? [data.master?.triggerCondition, data.master?.activeSkill, data.master?.desperateAwakening, data.master?.passiveSkill].filter(Boolean).join('\n')
       : data.cardType === 'trace'
         ? data.trace?.effectText ?? ''
         : data.spirit?.effectText ?? '';
   const effectPlainLength = effectText.replace(/\s/g, '').length;
   const effectLineCount = effectText ? effectText.split('\n').length : 0;
   const effectTagCount = (effectText.match(/【.*?】/g) || []).length;
+  const masterSkillCount = data.cardType === 'master'
+    ? [data.master?.triggerCondition, data.master?.activeSkill, data.master?.desperateAwakening, data.master?.passiveSkill].filter(Boolean).length
+    : 0;
   const effectPressure =
     effectPlainLength +
     effectLineCount * 8 +
     effectTagCount * 5 +
+    masterSkillCount * 6 +
     (data.cardType === 'spirit_resonance' ? 24 : 0);
   const effectTypography =
     effectPressure > 210
@@ -100,7 +104,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
           : { fontSize: 12, lineHeight: 1.25, labelFontSize: 11, labelHeight: 14, labelPaddingX: 4, paragraphMarginBottom: 2 };
 
   const renderFormattedLine = (line: string) => {
-    const keywords = ['限制', '登场', '共鸣', '战斗', '吟唱', '遗言', '普通', '结界', '痕迹', '退场', '领域', '发动条件', '效果'];
+      const keywords = ['无效果', '限制', '登场', '共鸣', '战斗', '吟唱', '遗言', '普通', '结界', '痕迹', '退场', '领域', '发动条件', '效果'];
     const pattern = /【(.*?)】/g;
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
@@ -193,6 +197,13 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
   const masterSkillLabelStyle = {
     WebkitTextStroke: '0px transparent',
     textShadow: 'none',
+  };
+  const masterSkillLabelSizeStyle = {
+    ...masterSkillLabelStyle,
+    fontSize: `${effectTypography.labelFontSize}px`,
+    height: `${effectTypography.labelHeight}px`,
+    paddingLeft: `${effectTypography.labelPaddingX}px`,
+    paddingRight: `${effectTypography.labelPaddingX}px`,
   };
 
   const [illustrationScale, setIllustrationScale] = useState(data.imageScale ?? 1);
@@ -380,22 +391,28 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         }}
       >
         {data.cardType === 'master' && (
-          <div className="space-y-1">
+          <div className={effectTypography.fontSize <= 10 ? 'space-y-0.5' : 'space-y-1'}>
             {data.master?.triggerCondition && (
               <div className="flex items-start">
-                <span className="bg-white text-neutral-900 px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelStyle}>觉醒条件</span>
+                <span className="bg-white text-neutral-900 rounded-[2px] font-black mr-1 inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelSizeStyle}>普通觉醒</span>
                 <span className="flex-1 min-w-0 block text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character]">{data.master.triggerCondition}</span>
               </div>
             )}
             {data.master?.activeSkill && (
               <div className="flex items-start">
-                <span className="bg-white text-neutral-900 px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelStyle}>觉醒技能</span>
+                <span className="bg-white text-neutral-900 rounded-[2px] font-black mr-1 inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelSizeStyle}>觉醒技能</span>
                 <span className="flex-1 min-w-0 block text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character]">{data.master.activeSkill}</span>
+              </div>
+            )}
+            {data.master?.desperateAwakening && (
+              <div className="flex items-start">
+                <span className="bg-white text-neutral-900 rounded-[2px] font-black mr-1 inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelSizeStyle}>绝境觉醒</span>
+                <span className="flex-1 min-w-0 block text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character]">{data.master.desperateAwakening}</span>
               </div>
             )}
             {data.master?.passiveSkill && (
               <div className="flex items-start">
-                <span className="bg-white text-neutral-900 px-1 rounded-[2px] font-black mr-1 text-[11px] h-[14px] inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelStyle}>绝境技能</span>
+                <span className="bg-white text-neutral-900 rounded-[2px] font-black mr-1 inline-flex items-center justify-center relative top-[1px] shrink-0" style={masterSkillLabelSizeStyle}>绝境技能</span>
                 <span className="flex-1 min-w-0 block text-justify break-words [word-break:normal] [overflow-wrap:break-word] [text-align-last:auto] [text-justify:inter-character]">{data.master.passiveSkill}</span>
               </div>
             )}

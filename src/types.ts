@@ -33,6 +33,7 @@ export interface CardData {
     state: string; // e.g., "未觉醒", "觉醒"
     triggerCondition: string;
     activeSkill: string;
+    desperateAwakening: string;
     passiveSkill: string;
     maintenance: string;
   };
@@ -106,6 +107,7 @@ export const INITIAL_CARD_DATA: CardData = {
     state: "未觉醒",
     triggerCondition: "",
     activeSkill: "",
+    desperateAwakening: "",
     passiveSkill: "",
     maintenance: ""
   },
