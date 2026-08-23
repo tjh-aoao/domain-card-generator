@@ -279,7 +279,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       </div>
 
       <div
-        className="absolute top-[8%] left-[3.5%] right-[3.5%] h-[90%] overflow-hidden z-0 cursor-move rounded-[4px]"
+        className="absolute top-[6%] left-[3.5%] right-[3.5%] h-[90%] overflow-hidden z-0 cursor-move rounded-[4px]"
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
