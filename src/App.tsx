@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { 
   Download, 
@@ -24,18 +24,23 @@ import {
   Edit,
   Copy,
   FileJson,
-  FileText
+  FileText,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
-import { CardData, CardType, INITIAL_CARD_DATA, AssetLibrary, INITIAL_ASSETS, SavedCard } from './types';
+import { CardData, CardType, INITIAL_CARD_DATA, AssetLibrary, INITIAL_ASSETS, SavedCard, LibraryGroup } from './types';
 import { cloneCardData, deepClone, isRecord, makeSavedCard, normalizeAssetLibrary, normalizeCardData, normalizeSavedCard } from './cardData';
 import { fieldsToCardData, parseImportText, readDocxText, SPIRIT_TRAIT_ORDER } from './importParser';
 import { A4_EXPORT_HEIGHT, A4_EXPORT_WIDTH, CARD_HEIGHT, CARD_WIDTH, getMatrixLabel } from './cardLayout';
 import { cn } from './cn';
 import { CardPreview } from './components/CardPreview';
 import { getProxiedUrl } from './imageProxy';
+import { BatchImageImport } from './components/BatchImageImport';
+import { withImportedImage } from './imageImport';
+import { useCardLibrary } from './useCardLibrary';
 
 // --- Components ---
 
@@ -66,12 +71,6 @@ interface PrintImageItem {
   src: string;
   count: number;
   fit: PrintImageFit;
-}
-
-interface LibraryGroup {
-  id: string;
-  name: string;
-  createdAt: number;
 }
 
 const PRINT_CARD_WIDTH = Math.round(A4_EXPORT_WIDTH * 59 / 210);
@@ -169,46 +168,25 @@ function ImageInput({
 };
 
 export default function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try { localStorage.setItem('spirit_card_theme', theme); } catch { /* Switching still works when preferences cannot be saved. */ }
+  }, [theme]);
+  const themeClass = theme === 'dark' ? 'dark-app' : 'light-app';
   const [cardData, setCardData] = useState<CardData>(INITIAL_CARD_DATA);
   const [assets, setAssets] = useState<AssetLibrary>(INITIAL_ASSETS);
   const [activeTab, setActiveTab] = useState<AppTab>('editor');
   const [showGrid, setShowGrid] = useState(false);
   
   // Card library states
-  const [savedCards, setSavedCards] = useState<SavedCard[]>(() => {
-    try {
-      const saved = localStorage.getItem('spirit_card_library');
-      const parsed = saved ? JSON.parse(saved) : [];
-      const cards = Array.isArray(parsed) ? parsed : (isRecord(parsed) && Array.isArray(parsed.cards) ? parsed.cards : []);
-      return cards.map(normalizeSavedCard).filter((item): item is SavedCard => Boolean(item));
-    } catch {
-      return [];
-    }
-  });
-  const [libraryGroups, setLibraryGroups] = useState<LibraryGroup[]>(() => {
-    try {
-      const savedGroups = localStorage.getItem('spirit_card_library_groups');
-      const parsedGroups = savedGroups ? JSON.parse(savedGroups) : null;
-      const savedLibrary = localStorage.getItem('spirit_card_library');
-      const parsedLibrary = savedLibrary ? JSON.parse(savedLibrary) : null;
-      const groups = Array.isArray(parsedGroups)
-        ? parsedGroups
-        : (isRecord(parsedLibrary) && Array.isArray(parsedLibrary.groups) ? parsedLibrary.groups : []);
-
-      return groups
-        .filter(isRecord)
-        .map(group => ({
-          id: typeof group.id === 'string' ? group.id : '',
-          name: typeof group.name === 'string' ? group.name.trim() : '',
-          createdAt: typeof group.createdAt === 'number' ? group.createdAt : Date.now(),
-        }))
-        .filter(group => group.id && group.name);
-    } catch {
-      return [];
-    }
-  });
+  const { savedCards, setSavedCards, libraryGroups, setLibraryGroups, isLoading: isLibraryLoading,
+    loadError: libraryLoadError, saveError: librarySaveError, isSaving: isLibrarySaving,
+    commitCards, retrySave } = useCardLibrary();
   const [activeGroupId, setActiveGroupId] = useState<'all' | 'ungrouped' | string>('all');
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const [showBatchImageImport, setShowBatchImageImport] = useState(false);
   const [isExportingBatch, setIsExportingBatch] = useState(false);
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
   const [batchExportCard, setBatchExportCard] = useState<CardData | null>(null);
@@ -223,37 +201,12 @@ export default function App() {
   const exportRef = useRef<HTMLDivElement>(null);
   const batchExportRef = useRef<HTMLDivElement>(null);
   const printPagesRef = useRef<HTMLDivElement>(null);
-  const storageWarningShownRef = useRef(false);
 
   useEffect(() => {
     if (cardData.cardType === 'master') {
       setMasterEffectDraft(getMasterSkillEditorText(cardData.master));
     }
   }, [cardData.cardType, editingCardId]);
-
-  const safeWriteLocalStorage = useCallback((key: string, value: unknown, label: string) => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-      storageWarningShownRef.current = false;
-      return true;
-    } catch (error) {
-      console.error(`Failed to save ${label} to localStorage`, error);
-      if (!storageWarningShownRef.current) {
-        storageWarningShownRef.current = true;
-        alert(`${label}保存失败，可能是 Chrome 本地存储空间已满。页面不会再白屏，但这次修改可能无法持久保存。建议先在“我的牌库”备份 JSON，再清理浏览器站点数据或减少素材快照体积。`);
-      }
-      return false;
-    }
-  }, []);
-
-  // Sync saved cards to localStorage
-  useEffect(() => {
-    safeWriteLocalStorage('spirit_card_library', savedCards, '牌库数据');
-  }, [safeWriteLocalStorage, savedCards]);
-
-  useEffect(() => {
-    safeWriteLocalStorage('spirit_card_library_groups', libraryGroups, '牌库分组');
-  }, [safeWriteLocalStorage, libraryGroups]);
 
   const updateField = (path: string, value: any) => {
     const keys = path.split('.');
@@ -971,6 +924,20 @@ export default function App() {
     }
   };
 
+  const applyLibraryImages = async (images: Map<string, string>): Promise<string | null> => {
+    const nextCards = savedCards.map(saved => {
+      const image = images.get(saved.id);
+      return image ? { ...saved, cardData: withImportedImage(saved.cardData, image) } : saved;
+    });
+    // Wait for the database transaction before showing a successful import.
+    if (!await commitCards(nextCards)) {
+      return '图片保存失败，本次未更改牌库。请检查浏览器存储权限和设备剩余空间后重试。';
+    }
+    const editorImage = editingCardId ? images.get(editingCardId) : undefined;
+    if (editorImage) setCardData(previous => withImportedImage(previous, editorImage));
+    return null;
+  };
+
   const clearLibrary = () => {
     if (window.confirm('您确定要清空当前的全部牌库吗？警告：这会永久擦除浏览器所有的本地牌库历史！')) {
       setSavedCards([]);
@@ -1130,17 +1097,50 @@ export default function App() {
         : card.groupId === activeGroupId
   ));
 
+  if (isLibraryLoading) {
+    return (
+      <div className={cn(themeClass, "min-h-screen flex items-center justify-center bg-neutral-950 p-6 text-neutral-200")}>
+        <div className="max-w-lg rounded-xl border border-white/10 bg-neutral-900 p-6">
+          <h1 className="text-lg font-bold">域·卡牌生成器</h1>
+          {libraryLoadError ? <>
+            <p role="alert" className="mt-3 text-sm">牌库加载失败：{libraryLoadError} 原有数据未删除。</p>
+            <button onClick={() => window.location.reload()} className="mt-4 rounded-lg bg-orange-600 px-4 py-2 text-white">重新加载</button>
+          </> : <p role="status" className="mt-3 text-sm">正在加载本地牌库，首次升级会自动迁移已有卡牌和分组…</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="light-app min-h-screen flex flex-col bg-neutral-950 text-neutral-200 font-sans">
+    <div className={cn(themeClass, "min-h-screen flex flex-col bg-neutral-950 text-neutral-200 font-sans")}>
+      {(isLibrarySaving || librarySaveError) && (
+        <div role={librarySaveError ? 'alert' : 'status'} className="storage-status flex flex-wrap items-center gap-3 bg-orange-50 px-6 py-2 text-sm text-orange-900">
+          <span>{librarySaveError || '正在保存牌库…'}</span>
+          {librarySaveError && <>
+            <button onClick={retrySave} className="underline">重试保存</button>
+            <button onClick={handleExportLibraryJson} className="underline">备份JSON</button>
+          </>}
+        </div>
+      )}
       {/* Top Action Bar */}
-      <header className="h-14 border-b border-white/10 flex items-center justify-between px-6 bg-neutral-900/50 backdrop-blur-md sticky top-0 z-50">
+      <header className="min-h-14 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 px-6 py-2 bg-neutral-900/50 backdrop-blur-md sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shadow-lg shadow-accent/20">
             <Zap className="w-5 h-5 text-white" />
           </div>
           <h1 className="font-bold text-lg tracking-tight">域·卡牌生成器 <span className="text-[10px] font-mono opacity-50 ml-2">正式版 1.0</span></h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTheme(previous => previous === 'light' ? 'dark' : 'light')}
+            aria-label={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}
+            title={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}
+            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-neutral-800 px-3 py-2 text-xs font-bold text-neutral-300 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+          >
+            {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            <span>{theme === 'light' ? '深色模式' : '浅色模式'}</span>
+          </button>
           {editingCardId && (
             <button 
               onClick={() => {
@@ -1226,7 +1226,7 @@ export default function App() {
       </header>
 
       {activeTab === 'print_workspace' ? (
-        <main className="flex-1 overflow-hidden bg-neutral-100 text-neutral-900">
+        <main className="print-workspace flex-1 overflow-hidden bg-neutral-100 text-neutral-900">
           <div className="h-full flex overflow-hidden">
             <aside className="w-[340px] shrink-0 bg-white border-r border-neutral-300 flex flex-col">
               <div className="p-4 border-b border-neutral-200 space-y-4">
@@ -1364,6 +1364,7 @@ export default function App() {
                   {printPages.map((pageItems, pageIndex) => (
                     <div
                       key={`print-preview-page-${pageIndex}`}
+                      data-fixed-colors
                       className="relative bg-white shadow-2xl"
                       style={{
                         width: A4_EXPORT_WIDTH * PRINT_PREVIEW_SCALE,
@@ -1544,9 +1545,19 @@ export default function App() {
                       title="从 Word、TXT 或 JSON 批量生成并导入卡牌"
                     >
                       <FileText className="w-3 h-3" />
-                      Word导入
+                      Word/TXT导入
                       <input type="file" accept=".docx,.txt,.md,.json" multiple onChange={handleBatchImportCards} className="hidden" />
                     </label>
+
+                    <button
+                      onClick={() => setShowBatchImageImport(true)}
+                      disabled={visibleSavedCards.length === 0 || isExportingBatch}
+                      className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-neutral-800 border border-white/10 hover:border-accent text-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                      title="按图片文件名匹配当前分组中的卡牌插画"
+                    >
+                      <ImageIcon className="w-3 h-3" />
+                      批量配图
+                    </button>
 
                     {/* JSON Import button */}
                     <label className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-neutral-800 border border-white/10 hover:border-white/20 text-neutral-300 hover:text-white cursor-pointer active:scale-95 transition-all">
@@ -2237,6 +2248,15 @@ export default function App() {
           </div>
         </section>
       </main>
+      )}
+
+      {showBatchImageImport && (
+        <BatchImageImport
+          cards={visibleSavedCards}
+          groupName={activeGroupName}
+          onApply={applyLibraryImages}
+          onClose={() => setShowBatchImageImport(false)}
+        />
       )}
 
       {/* Off-screen CardPreview for high-fidelity export, free from styling zooms/scales */}

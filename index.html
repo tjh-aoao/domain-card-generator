@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="google" content="notranslate" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Restore the chosen appearance before the application paints.
+      let theme = 'light';
+      try { if (localStorage.getItem('spirit_card_theme') === 'dark') theme = 'dark'; } catch {}
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.colorScheme = theme;
+    </script>
     <title>域·卡牌生成器</title>
   </head>
   <body class="notranslate">

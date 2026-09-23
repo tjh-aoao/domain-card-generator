@@ -265,6 +265,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       )}
       style={forExport ? { width: `${exportWidth}px`, height: `${Math.round(exportWidth * 86 / 59)}px` } : undefined}
       id="card-preview"
+      data-fixed-colors
     >
       <div className="absolute inset-0 z-5 pointer-events-none">
         {templateImg ? (

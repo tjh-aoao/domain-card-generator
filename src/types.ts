@@ -67,6 +67,12 @@ export interface SavedCard {
   cardData: CardData;
 }
 
+export interface LibraryGroup {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
 export const INITIAL_ASSETS: AssetLibrary = {
   templates: {
     master: "/assets/card-templates/master-template.png?v=20260726-master-base",

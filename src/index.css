@@ -41,6 +41,12 @@
   }
 }
 
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+  background: #0a0a0a;
+  color: #e5e5e5;
+}
+
 .card-shadow {
   box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
 }
@@ -56,43 +62,43 @@
   color: #1f2937 !important;
 }
 
-.light-app :where([class~="bg-neutral-950"], [class~="bg-neutral-950/40"], [class~="bg-neutral-950/20"], [class~="bg-neutral-950/10"]) {
+.light-app :where([class~="bg-neutral-950"], [class~="bg-neutral-950/40"], [class~="bg-neutral-950/20"], [class~="bg-neutral-950/10"]):not([data-fixed-colors], [data-fixed-colors] *) {
   background-color: #f7f9fc !important;
 }
 
-.light-app :where([class~="bg-neutral-900"], [class~="bg-neutral-900/80"], [class~="bg-neutral-900/50"], [class~="bg-neutral-900/30"]) {
+.light-app :where([class~="bg-neutral-900"], [class~="bg-neutral-900/80"], [class~="bg-neutral-900/50"], [class~="bg-neutral-900/30"]):not([data-fixed-colors], [data-fixed-colors] *) {
   background-color: #ffffff !important;
 }
 
-.light-app :where([class~="bg-neutral-800"], [class~="bg-neutral-800/50"]) {
+.light-app :where([class~="bg-neutral-800"], [class~="bg-neutral-800/50"]):not([data-fixed-colors], [data-fixed-colors] *) {
   background-color: #eef1f6 !important;
 }
 
-.light-app :where([class~="bg-neutral-700"]) {
+.light-app :where([class~="bg-neutral-700"]):not([data-fixed-colors], [data-fixed-colors] *) {
   background-color: #dfe4ec !important;
 }
 
-.light-app :where([class~="bg-white/5"], [class~="bg-white/10"], [class~="bg-white/15"]) {
+.light-app :where([class~="bg-white/5"], [class~="bg-white/10"], [class~="bg-white/15"]):not([data-fixed-colors], [data-fixed-colors] *) {
   background-color: rgba(15, 23, 42, 0.06) !important;
 }
 
-.light-app :where([class~="border-white/5"], [class~="border-white/10"], [class~="border-white/20"]) {
+.light-app :where([class~="border-white/5"], [class~="border-white/10"], [class~="border-white/20"]):not([data-fixed-colors], [data-fixed-colors] *) {
   border-color: rgba(15, 23, 42, 0.12) !important;
 }
 
-.light-app :where([class~="text-white"]) {
+.light-app :where([class~="text-white"]):not([data-fixed-colors], [data-fixed-colors] *) {
   color: #111827 !important;
 }
 
-.light-app :where([class~="text-neutral-200"], [class~="text-neutral-300"], [class~="text-neutral-400"]) {
+.light-app :where([class~="text-neutral-200"], [class~="text-neutral-300"], [class~="text-neutral-400"]):not([data-fixed-colors], [data-fixed-colors] *) {
   color: #374151 !important;
 }
 
-.light-app :where([class~="text-neutral-500"]) {
+.light-app :where([class~="text-neutral-500"]):not([data-fixed-colors], [data-fixed-colors] *) {
   color: #64748b !important;
 }
 
-.light-app :where([class~="text-neutral-600"], [class~="text-neutral-700"]) {
+.light-app :where([class~="text-neutral-600"], [class~="text-neutral-700"]):not([data-fixed-colors], [data-fixed-colors] *) {
   color: #475569 !important;
 }
 
@@ -108,23 +114,71 @@
   color-scheme: light;
 }
 
-.light-app #card-preview :where([class~="text-white"]) {
+.light-app [class~="divide-white/10"] > :not(:last-child) {
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-fixed-colors] {
+  color-scheme: light;
+}
+
+#card-preview :where([class~="text-white"]) {
   color: #ffffff !important;
 }
 
-.light-app #card-preview :where([class~="bg-white/10"]) {
+#card-preview :where([class~="bg-white/10"]) {
   background-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-.light-app #card-preview :where([class~="border-white/5"]) {
+#card-preview :where([class~="border-white/5"]) {
   border-color: rgba(255, 255, 255, 0.05) !important;
 }
 
-.light-app #card-preview :where([class~="bg-neutral-900"]) {
+#card-preview :where([class~="bg-neutral-900"]) {
   background-color: #111827 !important;
 }
 
 .light-app :where([class~="bg-accent"], [class~="bg-emerald-600"], [class~="bg-red-500"], [class~="bg-red-600"]) :where([class~="text-white"]),
 .light-app :where(button[class*="bg-accent"], button[class*="bg-emerald"], button[class*="bg-red"]) {
   color: #ffffff !important;
+}
+
+.dark-app {
+  color-scheme: dark;
+}
+
+.dark-app :where([class~="text-neutral-500"], [class~="text-neutral-600"]):not([data-fixed-colors], [data-fixed-colors] *) {
+  color: #a3a3a3;
+}
+
+.dark-app .storage-status {
+  background: #332216;
+  color: #fed7aa;
+}
+
+/* The print workspace chrome follows the theme; paper and artwork keep fixed colors. */
+.dark-app .print-workspace,
+.dark-app .print-workspace :where([class~="text-neutral-900"], [class~="text-neutral-950"], [class~="text-neutral-700"]):not([data-fixed-colors], [data-fixed-colors] *) {
+  color: #e5e5e5;
+}
+
+.dark-app .print-workspace,
+.dark-app .print-workspace :where([class~="bg-neutral-50"], [class~="bg-neutral-100"]):not([data-fixed-colors], [data-fixed-colors] *) {
+  background-color: #0a0a0a;
+}
+
+.dark-app .print-workspace :where([class~="bg-white"]):not([data-fixed-colors], [data-fixed-colors] *) {
+  background-color: #171717;
+}
+
+.dark-app .print-workspace :where([class~="bg-neutral-200"], [class~="bg-neutral-200/95"]):not([data-fixed-colors], [data-fixed-colors] *) {
+  background-color: #262626;
+}
+
+.dark-app .print-workspace :where([class~="border-neutral-200"], [class~="border-neutral-300"]):not([data-fixed-colors], [data-fixed-colors] *) {
+  border-color: #404040;
+}
+
+.dark-app .print-workspace [class~="hover:bg-neutral-100"]:hover {
+  background-color: #262626;
 }
