@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CARD_HEIGHT, CARD_WIDTH, getMatrixLabel } from '../cardLayout';
 import { cn } from '../cn';
 import { getProxiedUrl } from '../imageProxy';
@@ -67,6 +67,57 @@ const MatrixDisplay = ({
 };
 
 const toDisplaySlash = (value?: string) => (value ?? '').replace(/\//g, '／');
+
+const CardName = ({ name, className, style }: {
+  name: string;
+  className: string;
+  style?: React.CSSProperties;
+}) => {
+  const containerRef = useRef<HTMLHeadingElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const text = textRef.current;
+    if (!container || !text) return;
+    let disposed = false;
+    const fit = () => {
+      if (disposed) return;
+      text.style.letterSpacing = '0px';
+      text.style.transform = '';
+      // Use layout widths so preview/export transforms do not affect fitting.
+      const naturalWidth = text.offsetWidth;
+      const gaps = Math.max(1, Array.from(name).length - 1);
+      const fontSize = parseFloat(getComputedStyle(text).fontSize);
+      const availableWidth = Math.max(0, container.clientWidth - 2);
+      const spacing = Math.max(-fontSize * 0.25,
+        Math.min(-fontSize * 0.05, (availableWidth - naturalWidth) / gaps));
+      text.style.letterSpacing = `${spacing}px`;
+      // Extremely long names need a horizontal fit after spacing reaches its limit.
+      // Negative tracking also shortens the last advance; reserve that glyph's edge.
+      const textWidth = text.offsetWidth - spacing;
+      if (textWidth > availableWidth) {
+        text.style.transform = `scaleX(${availableWidth / textWidth})`;
+      }
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(container);
+    document.fonts.ready.then(fit);
+    document.fonts.addEventListener('loadingdone', fit);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      document.fonts.removeEventListener('loadingdone', fit);
+    };
+  }, [name]);
+
+  return (
+    <h2 ref={containerRef} className={className} style={style}>
+      <span ref={textRef} className="inline-block whitespace-nowrap origin-left">{name}</span>
+    </h2>
+  );
+};
 
 export const CardPreview = React.forwardRef<HTMLDivElement, {
   data: CardData,
@@ -307,10 +358,11 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
         )}
       </div>
 
-      <div className="absolute top-[1.2%] left-[5%] right-[4%] h-[5.5%] flex items-center justify-between z-10">
-        <h2
+      <div className="absolute top-[1.2%] left-[5%] right-[4%] h-[5.5%] flex items-center gap-2 z-10">
+        <CardName
+          name={data.name}
           className={cn(
-            "text-[23px] font-black tracking-tighter drop-shadow-sm truncate max-w-[65%] leading-[1.15] py-0.5",
+            "text-[23px] font-black drop-shadow-sm flex-1 min-w-0 overflow-hidden leading-[1.15] py-0.5",
             data.cardType === 'trace' || data.cardType === 'master' ? 'text-white' : 'text-neutral-900'
           )}
           style={
@@ -320,10 +372,8 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
                 ? { textShadow: '0 1px 2px rgba(0,0,0,0.75)' }
                 : undefined
           }
-        >
-          {data.name}
-        </h2>
-        <div className="flex items-center">
+        />
+        <div className="flex items-center shrink-0">
           {showCost && (
             <div className="w-[32px] h-[32px] flex items-center justify-center overflow-hidden z-10">
               {costIcon ? (
