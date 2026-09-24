@@ -93,4 +93,27 @@ assert.equal(
   '【发动条件】 自身登场\n【效果】 抽1张卡'
 );
 
+const noEffectHeader = '裂天龙｜5｜白\n3200｜80\n【龙界域｜无效果】';
+const noEffectFields = '名称：裂天龙\n类型：普通域灵\n属性：白\n费用：5\n攻击力：3200\n域值：80\n种族：龙界域\n特性：无效果';
+for (const text of [noEffectHeader, `${noEffectHeader}\n无效果`, noEffectFields, `${noEffectFields}\n效果：`, `${noEffectFields}\n效果：无效果`]) {
+  const imported = parseImportText(text).map(fieldsToCardData);
+  assert.equal(imported.length, 1);
+  assert.equal(imported[0].name, '裂天龙');
+  assert.equal(imported[0].spirit.effectText, '无效果');
+  assert.equal(imported[0].spirit.attack, 3200);
+  assert.equal(imported[0].spirit.domainValue, 80);
+  assert.deepEqual(imported[0].spirit.keywords, ['无效果']);
+}
+
+const blankNoEffect = fieldsToCardData({
+  cardType: '普通域灵', 'spirit.trait': '无效果', 'spirit.effectText': '  \n  ',
+});
+assert.equal(blankNoEffect.spirit.effectText, '无效果');
+
+// Preserve explicitly supplied text even when the source has a conflicting tag.
+const conflictingNoEffect = fieldsToCardData({
+  cardType: '普通域灵', 'spirit.trait': '无效果', 'spirit.effectText': '登场：抽1张卡。',
+});
+assert.equal(conflictingNoEffect.spirit.effectText, '【登场】 抽1张卡。');
+
 console.log('import parser tests passed');

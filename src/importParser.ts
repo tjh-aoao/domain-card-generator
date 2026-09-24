@@ -363,6 +363,10 @@ export function fieldsToCardData(fields: ParsedCardFields): CardData {
     }
   }
 
+  if (cardType.startsWith('spirit') && card.spirit.keywords.includes('无效果') && !fields['spirit.effectText']?.trim()) {
+    card.spirit.effectText = '无效果';
+  }
+
   if (!fields['spirit.attributes'] && fields.attribute) card.spirit.attributes = splitList(fields.attribute);
 
   if (fields['trace.traceType']) card.trace.traceType = fields['trace.traceType'];
