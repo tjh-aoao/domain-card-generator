@@ -13,9 +13,10 @@ const FIELD_ALIASES: Array<[string, string[]]> = [
   ['flavorText', ['flavor', 'flavorText', '背景', '背景描述', '风味文本', '台词']],
   ['matrix', ['matrix', '矩阵', '格子', '阵列']],
   ['master.state', ['state', '状态', '觉醒状态']],
-  ['master.triggerCondition', ['trigger', 'triggerCondition', '触发', '触发条件']],
-  ['master.activeSkill', ['active', 'activeSkill', '主动', '主动技能']],
-  ['master.passiveSkill', ['passive', 'passiveSkill', '被动', '被动技能']],
+  ['master.triggerCondition', ['trigger', 'triggerCondition', '触发', '触发条件', '觉醒条件', '普通觉醒']],
+  ['master.activeSkill', ['active', 'activeSkill', '主动', '主动技能', '觉醒技能']],
+  ['master.desperateAwakening', ['desperateAwakening', '绝境条件', '绝境觉醒']],
+  ['master.passiveSkill', ['passive', 'passiveSkill', '被动', '被动技能', '绝境技能', '绝境效果']],
   ['master.maintenance', ['maintenance', '维持', '维持费用']],
   ['spirit.cost', ['cost', '费用', '召唤费用']],
   ['spirit.attributes', ['attributes', '副属性', '属性组', '多属性']],
@@ -125,7 +126,7 @@ function normalizeCardType(value: string | undefined, fields: ParsedCardFields):
   if (fields.matrix) return 'spirit_resonance';
   if (raw.includes('resonance') || raw.includes('共鸣')) return 'spirit_resonance';
   if (fields['trace.effectText'] || fields['trace.cost'] || fields['trace.traceType']) return 'trace';
-  if (fields['master.activeSkill'] || fields['master.passiveSkill'] || fields['master.triggerCondition']) return 'master';
+  if (fields['master.activeSkill'] || fields['master.passiveSkill'] || fields['master.triggerCondition'] || fields['master.desperateAwakening']) return 'master';
   return 'spirit_normal';
 }
 
@@ -169,6 +170,14 @@ export function parseCardBlocks(text: string) {
     if (!line) continue;
     if (/^[-=_*#]{3,}$/.test(line) || /^第?\s*\d+\s*[张份]?\s*卡/.test(line)) {
       pushCurrent();
+      continue;
+    }
+
+    const masterTag = line.match(/^【(普通觉醒|觉醒技能|绝境觉醒|绝境技能)】\s*(.*)$/);
+    if (masterTag) {
+      const key = normalizeFieldKey(masterTag[1]);
+      current[key] = masterTag[2];
+      lastKey = key;
       continue;
     }
 
@@ -311,7 +320,8 @@ export function parseImportText(text: string) {
     block['trace.traceType'] ||
     block['master.activeSkill'] ||
     block['master.passiveSkill'] ||
-    block['master.triggerCondition']
+    block['master.triggerCondition'] ||
+    block['master.desperateAwakening']
   )) {
     return fieldBlocks;
   }
@@ -338,6 +348,7 @@ export function fieldsToCardData(fields: ParsedCardFields): CardData {
   if (fields['master.state']) card.master.state = fields['master.state'];
   if (fields['master.triggerCondition']) card.master.triggerCondition = fields['master.triggerCondition'];
   if (fields['master.activeSkill']) card.master.activeSkill = fields['master.activeSkill'];
+  if (fields['master.desperateAwakening']) card.master.desperateAwakening = fields['master.desperateAwakening'];
   if (fields['master.passiveSkill']) card.master.passiveSkill = fields['master.passiveSkill'];
   if (fields['master.maintenance']) card.master.maintenance = fields['master.maintenance'];
 

@@ -195,6 +195,8 @@ export default function App() {
   const [singleExportWidth, setSingleExportWidth] = useState(CARD_WIDTH);
   const [printImages, setPrintImages] = useState<PrintImageItem[]>([]);
   const [masterEffectDraft, setMasterEffectDraft] = useState(() => getMasterSkillEditorText(INITIAL_CARD_DATA.master));
+  const [singleCardText, setSingleCardText] = useState('');
+  const [singleCardImportMessage, setSingleCardImportMessage] = useState<string | null>(null);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const effectTextRef = useRef<HTMLTextAreaElement>(null);
@@ -220,6 +222,34 @@ export default function App() {
       current[keys[keys.length - 1]] = value;
       return newData;
     });
+  };
+
+  const recognizeSingleCardText = () => {
+    const text = singleCardText.trim();
+    if (!text) {
+      setSingleCardImportMessage('请先粘贴一张卡牌文本。');
+      return;
+    }
+
+    const parsedCards = parseImportText(text);
+    if (parsedCards.length !== 1) {
+      setSingleCardImportMessage(parsedCards.length > 1
+        ? '一次只能识别一张卡牌，请删除多余卡牌内容后重试。'
+        : '未识别到有效卡牌。请检查卡名和字段格式。');
+      return;
+    }
+
+    const parsedCard = parsedCards[0];
+    if (!parsedCard.name?.trim()) {
+      setSingleCardImportMessage('未识别到卡名。请补充“名称：”或使用“卡名｜费用｜属性”格式。');
+      return;
+    }
+
+    const nextCard = fieldsToCardData(parsedCard);
+    setCardData(nextCard);
+    setEditingCardId(null);
+    setMasterEffectDraft(getMasterSkillEditorText(nextCard.master));
+    setSingleCardImportMessage(`已识别【${nextCard.name}】并回填编辑器；添加至牌库后才会保存。`);
   };
 
   const updateAsset = (type: 'templates' | 'attributes' | 'costs', key: string, value: string) => {
@@ -1849,6 +1879,46 @@ export default function App() {
               </div>
             ) : activeTab === 'editor' ? (
               <>
+                <div className="space-y-3 rounded-xl border border-accent/20 bg-accent/10 p-4 mb-6">
+                  <div className="flex items-center gap-2 text-accent">
+                    <FileText className="w-4 h-4" />
+                    <h3 className="text-sm font-bold">单卡文本识别</h3>
+                  </div>
+                  <p className="text-xs leading-relaxed text-neutral-400">
+                    粘贴一张字段式或简化式卡牌文本，识别后直接回填当前编辑器。识别不会自动写入牌库。
+                  </p>
+                  <textarea
+                    value={singleCardText}
+                    onChange={(e) => {
+                      setSingleCardText(e.target.value);
+                      setSingleCardImportMessage(null);
+                    }}
+                    placeholder={'名称：星火旅人\n类型：普通域灵\n属性：红、白\n费用：3\n攻击：1600\n域值：400\n效果：\n【共鸣】抽1张卡'}
+                    className="h-40 w-full resize-y rounded-lg border border-white/10 bg-neutral-900 px-4 py-3 font-sans text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:border-accent"
+                    aria-label="单卡文本识别输入框"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p
+                      role="status"
+                      aria-live="polite"
+                      className={cn(
+                        'text-xs',
+                        singleCardImportMessage?.startsWith('已识别') ? 'text-emerald-400' : 'text-neutral-400'
+                      )}
+                    >
+                      {singleCardImportMessage || '支持“名称：”字段格式和“卡名｜费用｜属性”简化格式。'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={recognizeSingleCardText}
+                      className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-bold text-white transition-all hover:brightness-110 active:scale-95"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      识别并回填
+                    </button>
+                  </div>
+                </div>
+
                 {/* Grid Toggle */}
                 <div className="flex items-center justify-between p-4 bg-accent/10 border border-accent/20 rounded-xl mb-6">
                   <div className="flex items-center gap-2">
