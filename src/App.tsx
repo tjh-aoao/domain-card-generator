@@ -77,8 +77,11 @@ const PRINT_CARD_WIDTH = Math.round(A4_EXPORT_WIDTH * 59 / 210);
 const PRINT_CARD_HEIGHT = Math.round(A4_EXPORT_HEIGHT * 86 / 297);
 const PRINT_GRID_COLS = 3;
 const PRINT_GRID_ROWS = 3;
-const PRINT_GRID_WIDTH = PRINT_CARD_WIDTH * PRINT_GRID_COLS;
-const PRINT_GRID_HEIGHT = PRINT_CARD_HEIGHT * PRINT_GRID_ROWS;
+const PRINT_CARD_GAP_MM = 3;
+// Round up so rasterized A4 exports never leave less than 3 mm between cards.
+const PRINT_CARD_GAP = Math.ceil(Math.max(A4_EXPORT_WIDTH / 210, A4_EXPORT_HEIGHT / 297) * PRINT_CARD_GAP_MM);
+const PRINT_GRID_WIDTH = PRINT_CARD_WIDTH * PRINT_GRID_COLS + PRINT_CARD_GAP * (PRINT_GRID_COLS - 1);
+const PRINT_GRID_HEIGHT = PRINT_CARD_HEIGHT * PRINT_GRID_ROWS + PRINT_CARD_GAP * (PRINT_GRID_ROWS - 1);
 const PRINT_GRID_LEFT = Math.round((A4_EXPORT_WIDTH - PRINT_GRID_WIDTH) / 2);
 const PRINT_GRID_TOP = Math.round((A4_EXPORT_HEIGHT - PRINT_GRID_HEIGHT) / 2);
 const PRINT_CROP_MARK_LENGTH = 48;
@@ -1008,12 +1011,9 @@ export default function App() {
     
     const newText = before + formattedKeyword + after;
     
-    updateEffectEditorValue(newText);
-
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + formattedKeyword.length, start + formattedKeyword.length);
-    }, 0);
+    flushSync(() => updateEffectEditorValue(newText));
+    textarea.focus();
+    textarea.setSelectionRange(start + formattedKeyword.length, start + formattedKeyword.length);
   };
 
   const toggleMatrix = (index: number) => {
@@ -1098,12 +1098,9 @@ export default function App() {
     const end = textarea.selectionEnd;
     const currentValue = getEffectEditorValue();
     const nextValue = currentValue.slice(0, start) + '\n' + currentValue.slice(end);
-    updateEffectEditorValue(nextValue);
-
-    window.setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + 1, start + 1);
-    }, 0);
+    flushSync(() => updateEffectEditorValue(nextValue));
+    textarea.focus();
+    textarea.setSelectionRange(start + 1, start + 1);
   };
 
   const expandedPrintImages = getExpandedPrintImages();
@@ -1111,8 +1108,14 @@ export default function App() {
   const printPages = Array.from({ length: printPageCount }, (_, pageIndex) => (
     expandedPrintImages.slice(pageIndex * PRINT_CARDS_PER_PAGE, (pageIndex + 1) * PRINT_CARDS_PER_PAGE)
   ));
-  const cropXs = Array.from({ length: PRINT_GRID_COLS + 1 }, (_, index) => PRINT_GRID_LEFT + PRINT_CARD_WIDTH * index);
-  const cropYs = Array.from({ length: PRINT_GRID_ROWS + 1 }, (_, index) => PRINT_GRID_TOP + PRINT_CARD_HEIGHT * index);
+  const cropXs = Array.from({ length: PRINT_GRID_COLS }, (_, index) => {
+    const left = PRINT_GRID_LEFT + (PRINT_CARD_WIDTH + PRINT_CARD_GAP) * index;
+    return [left, left + PRINT_CARD_WIDTH];
+  }).flat();
+  const cropYs = Array.from({ length: PRINT_GRID_ROWS }, (_, index) => {
+    const top = PRINT_GRID_TOP + (PRINT_CARD_HEIGHT + PRINT_CARD_GAP) * index;
+    return [top, top + PRINT_CARD_HEIGHT];
+  }).flat();
   const ungroupedCount = savedCards.filter(card => !card.groupId).length;
   const activeGroupName = activeGroupId === 'all'
     ? '全部卡牌'
@@ -1287,6 +1290,7 @@ export default function App() {
                     </select>
                   </label>
                   <p className="text-xs text-neutral-500">59mm × 86mm：图片默认居中裁切。</p>
+                  <p className="text-xs text-neutral-500">卡片间隔至少 {PRINT_CARD_GAP_MM}mm，横向与纵向一致。</p>
                 </div>
               </div>
 
@@ -1428,7 +1432,7 @@ export default function App() {
                               display: 'grid',
                               gridTemplateColumns: `repeat(${PRINT_GRID_COLS}, ${PRINT_CARD_WIDTH}px)`,
                               gridTemplateRows: `repeat(${PRINT_GRID_ROWS}, ${PRINT_CARD_HEIGHT}px)`,
-                              gap: 0,
+                              gap: `${PRINT_CARD_GAP}px`,
                             }}
                           >
                             {Array.from({ length: PRINT_CARDS_PER_PAGE }).map((_, index) => {

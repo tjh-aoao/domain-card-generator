@@ -242,7 +242,7 @@ export const CardPreview = React.forwardRef<HTMLDivElement, {
       ? {
           WebkitTextStroke: '0px transparent',
           textShadow:
-            '0.55px 0 0 #000, -0.55px 0 0 #000, 0 0.55px 0 #000, 0 -0.55px 0 #000, 0.4px 0.4px 0 #000, -0.4px 0.4px 0 #000, 0.4px -0.4px 0 #000, -0.4px -0.4px 0 #000',
+            '0.55px 0 0 #000, -0.55px 0 0 #000, 0 0.55px 0 #000, 0 -0.55px 0 #000, 0.4px 0.4px 0 #000, -0.4px 0.4px 0 #000, 0.4px -0.4px 0 #000, -0.4px -0.4px 0 #000, 0 0 2px #000, 0 0 3px #000, 1.2px 1.5px 3px #000, 0 0 6px #000',
         }
       : undefined;
   const masterSkillLabelStyle = {
